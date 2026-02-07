@@ -5,90 +5,177 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}Asort Design{% endblock %}</title>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
       :root {
         color-scheme: light;
-        --bg: #f7f7f4;
-        --card: #ffffff;
-        --text: #222222;
-        --muted: #666666;
-        --accent: #1f6feb;
-        --border: #e2e2dd;
+        --bg: #0f141c;
+        --bg-2: #0b0f15;
+        --card: rgba(22, 28, 40, 0.92);
+        --card-border: rgba(131, 160, 255, 0.12);
+        --text: #f2f6fb;
+        --muted: #b5bfd1;
+        --accent: #4c7dff;
+        --accent-2: #5cf2d6;
+        --danger: #ff6b6b;
+        --glow: 0 0 40px rgba(76, 125, 255, 0.2);
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: var(--bg);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 10% 20%, rgba(76, 125, 255, 0.18), transparent 35%),
+          radial-gradient(circle at 90% 10%, rgba(92, 242, 214, 0.14), transparent 40%),
+          linear-gradient(160deg, var(--bg), var(--bg-2));
         color: var(--text);
+        min-height: 100vh;
       }
       header {
-        padding: 24px 32px;
-        border-bottom: 1px solid var(--border);
-        background: var(--card);
+        padding: 22px 32px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(16px);
+        background: rgba(10, 14, 20, 0.75);
+        position: sticky;
+        top: 0;
+        z-index: 5;
       }
-      header h1 {
-        margin: 0;
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .brand {
         font-size: 20px;
+        letter-spacing: 0.4px;
+        font-weight: 600;
+        color: var(--text);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(140deg, var(--accent), var(--accent-2));
+        box-shadow: var(--glow);
+        display: inline-block;
+      }
+      .nav-links {
+        display: flex;
+        gap: 16px;
+        font-weight: 600;
+      }
+      .nav-links a {
+        color: var(--text);
+        text-decoration: none;
+        font-size: 14px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+      }
+      .nav-links a:hover {
+        border-color: rgba(92, 242, 214, 0.35);
+        color: var(--accent-2);
       }
       main {
-        max-width: 960px;
-        margin: 24px auto 64px;
-        padding: 0 24px;
+        max-width: 1200px;
+        margin: 32px auto 80px;
+        padding: 0 28px;
       }
       .card {
         background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 16px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+        border-top: 1px solid var(--card-border);
+        border-bottom: 1px solid var(--card-border);
+        border-left: none;
+        border-right: none;
+        border-radius: 16px;
+        padding: 22px;
+        margin-bottom: 18px;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(18px);
+      }
+      .card h2,
+      .card h3 {
+        margin-top: 0;
+        text-align: center;
       }
       label {
         display: block;
         font-weight: 600;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        color: #cfd6e2;
       }
       input[type="text"],
       textarea,
       select {
         width: 100%;
-        padding: 10px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
+        padding: 12px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
         font-size: 14px;
+        background: rgba(10, 12, 18, 0.8);
+        color: var(--text);
+        font-family: "Space Grotesk", sans-serif;
       }
       textarea {
-        min-height: 160px;
+        min-height: 180px;
         resize: vertical;
       }
       .row {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
       }
       .actions {
         margin-top: 16px;
         display: flex;
+        flex-wrap: wrap;
         gap: 12px;
         align-items: center;
       }
       .button {
-        background: var(--accent);
-        color: white;
+        background: linear-gradient(135deg, var(--accent), #3d5cff);
+        color: #0b0f14;
         border: none;
-        padding: 10px 14px;
-        border-radius: 6px;
+        padding: 10px 16px;
+        border-radius: 10px;
         cursor: pointer;
         font-size: 14px;
+        font-weight: 600;
         text-decoration: none;
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: var(--glow);
+      }
+      .button:hover {
+        transform: translateY(-1px);
+        transition: transform 0.2s ease;
       }
       .link-card {
         display: block;
         color: inherit;
         text-decoration: none;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid transparent;
       }
       .link-card:hover {
-        text-decoration: underline;
+        border-color: rgba(92, 242, 214, 0.35);
+        background: rgba(20, 28, 40, 0.6);
+      }
+      a {
+        color: var(--accent-2);
+      }
+      a:hover {
+        color: #9cf8e5;
       }
       .muted {
         color: var(--muted);
@@ -96,15 +183,50 @@
       }
       .badge {
         display: inline-block;
-        padding: 2px 8px;
+        padding: 2px 10px;
         border-radius: 999px;
-        background: #eef3ff;
-        color: #1f4cb0;
+        background: rgba(92, 242, 214, 0.15);
+        color: var(--accent-2);
         font-size: 12px;
         font-weight: 600;
       }
+      .badge-inline {
+        margin-left: 8px;
+        vertical-align: middle;
+      }
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border: 1px solid transparent;
+      }
+      .status-completed {
+        color: #0b1512;
+        background: rgba(92, 242, 214, 0.7);
+        border-color: rgba(92, 242, 214, 0.9);
+      }
+      .status-running {
+        color: #0b1016;
+        background: rgba(76, 125, 255, 0.65);
+        border-color: rgba(76, 125, 255, 0.9);
+      }
+      .status-failed {
+        color: #1b0d0d;
+        background: rgba(255, 107, 107, 0.8);
+        border-color: rgba(255, 107, 107, 0.9);
+      }
+      .status-pending {
+        color: #16120a;
+        background: rgba(255, 201, 92, 0.75);
+        border-color: rgba(255, 201, 92, 0.9);
+      }
       .error {
-        color: #b42318;
+        color: var(--danger);
         font-weight: 600;
       }
       .toggle-row {
@@ -115,9 +237,6 @@
       }
       .toggle-row label {
         font-weight: 500;
-      }
-      details legend {
-        font-weight: 600;
       }
       details summary {
         cursor: pointer;
@@ -139,30 +258,172 @@
         margin: 12px 0 0;
         padding-left: 18px;
       }
+      .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+      }
+      .search-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .search-bar input[type="text"] {
+        flex: 1 1 260px;
+      }
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 14px;
+        margin-top: 12px;
+      }
+      .stat-card {
+        padding: 14px;
+        border-radius: 12px;
+        background: rgba(8, 12, 18, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--accent-2);
+      }
+      .sticky-actions {
+        position: sticky;
+        top: 78px;
+        z-index: 4;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: rgba(10, 14, 20, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(12px);
+        margin-bottom: 16px;
+        max-width: 720px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .loading-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 18, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 999;
+      }
+      .loading-overlay.active {
+        display: flex;
+      }
+      .loading-card {
+        background: rgba(18, 24, 33, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 24px 32px;
+        border-radius: 14px;
+        text-align: center;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+      }
+      .spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-top-color: var(--accent-2);
+        animation: spin 0.9s linear infinite;
+        margin: 0 auto 12px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .timeline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+        margin: 8px 0 12px;
+      }
+      .timeline-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(10, 12, 18, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 12px;
+      }
+      .timeline-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--muted);
+      }
+      .timeline-dot.passed {
+        background: var(--accent-2);
+        box-shadow: 0 0 10px rgba(92, 242, 214, 0.6);
+      }
+      .timeline-dot.failed {
+        background: var(--danger);
+        box-shadow: 0 0 10px rgba(255, 107, 107, 0.6);
+      }
       .hidden {
         display: none;
       }
       .mermaid {
-        background: #f5f5f5;
-        border: 1px dashed var(--border);
-        border-radius: 6px;
-        padding: 12px;
+        background: rgba(6, 8, 12, 0.7);
+        border: 1px dashed rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        padding: 14px;
         overflow-x: auto;
       }
+      ul {
+        padding-left: 18px;
+      }
+      code,
+      pre {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+      }
       @media (max-width: 720px) {
-        .row {
-          grid-template-columns: 1fr;
+        header {
+          padding: 18px 20px;
+        }
+        main {
+          padding: 0 18px;
         }
       }
     </style>
   </head>
   <body>
     <header>
-      <h1><a href="/web" style="text-decoration:none;color:inherit;">Asort Design</a></h1>
+      <div class="nav">
+        <a class="brand" href="/web">Asort Design</a>
+        <nav class="nav-links">
+          <a href="/web/insights">Insights</a>
+          <a href="/web/routes">Routes</a>
+          <a href="/web/library">Library</a>
+          <a href="/web/watchlist">Watchlist</a>
+          <a href="/web/about">About</a>
+        </nav>
+      </div>
     </header>
     <main>
       {% block content %}{% endblock %}
     </main>
+    <div id="loading-overlay" class="loading-overlay">
+      <div class="loading-card">
+        <div class="spinner"></div>
+        <div>Processing request…</div>
+        <div class="muted">This can take a few seconds.</div>
+      </div>
+    </div>
     <script>
       function toggleSection(sectionId, isVisible) {
         var section = document.getElementById(sectionId);
@@ -211,6 +472,22 @@
             return;
           }
           initMermaid();
+        });
+      })();
+
+      (function () {
+        var overlay = document.getElementById("loading-overlay");
+        if (!overlay) {
+          return;
+        }
+        document.addEventListener("submit", function (event) {
+          var form = event.target;
+          if (!(form instanceof HTMLFormElement)) {
+            return;
+          }
+          if (form.hasAttribute("data-loading")) {
+            overlay.classList.add("active");
+          }
         });
       })();
     </script>

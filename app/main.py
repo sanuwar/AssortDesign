@@ -40,28 +40,13 @@ def _audience_display(audience: str) -> str:
     except ValueError:
         return audience
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_db()
-    yield
 
-
-app = FastAPI(title="Asort Design", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-
-@app.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
-    return RedirectResponse(url="/web")
-
-
-@app.get("/web", response_class=HTMLResponse)
-def home(request: Request, audience: Optional[str] = None) -> HTMLResponse:
+def _build_home_context(selected_audience: Optional[str]) -> dict:
     history = []
     route_counts = {aud: 0 for aud in AUDIENCES}
     audience_display = {aud: _audience_display(aud) for aud in AUDIENCES}
-    selected_audience = audience if audience in AUDIENCES else "auto"
+    resolved_audience = selected_audience if selected_audience in AUDIENCES else "auto"
+
     with get_session() as session:
         recent_docs = session.exec(
             select(Document).order_by(Document.created_at.desc()).limit(7)
@@ -98,16 +83,323 @@ def home(request: Request, audience: Optional[str] = None) -> HTMLResponse:
             audience = job.audience or job.selected_audience or "auto"
             route_counts[audience] = route_counts.get(audience, 0) + 1
 
+    total_docs = 0
+    total_jobs = 0
+    total_completed = 0
+    total_failed = 0
+    with get_session() as session:
+        total_docs = len(session.exec(select(Document)).all())
+        jobs = session.exec(select(Job)).all()
+        total_jobs = len(jobs)
+        for job in jobs:
+            if job.status == "completed":
+                total_completed += 1
+            if job.status == "failed":
+                total_failed += 1
+
+    success_rate = 0
+    if total_jobs:
+        success_rate = round((total_completed / total_jobs) * 100)
+
+    return {
+        "audiences": AUDIENCES,
+        "audience_display": audience_display,
+        "selected_audience": resolved_audience,
+        "history": history,
+        "route_counts": route_counts,
+        "stats": {
+            "total_docs": total_docs,
+            "total_jobs": total_jobs,
+            "total_completed": total_completed,
+            "total_failed": total_failed,
+            "success_rate": success_rate,
+        },
+    }
+
+
+def _normalize_page(page: Optional[int]) -> int:
+    if not page or page < 1:
+        return 1
+    return page
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Asort Design", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/web")
+
+
+@app.get("/web", response_class=HTMLResponse)
+def home(request: Request, audience: Optional[str] = None) -> HTMLResponse:
+    context = _build_home_context(audience)
+
     return templates.TemplateResponse(
         "home.html",
         {
             "request": request,
-            "audiences": AUDIENCES,
-            "audience_display": audience_display,
-            "selected_audience": selected_audience,
+            **context,
             "sample_text": SAMPLE_TEXT,
-            "history": history,
-            "route_counts": route_counts,
+        },
+    )
+
+
+@app.get("/web/insights", response_class=HTMLResponse)
+def insights(request: Request, page: int = 1) -> HTMLResponse:
+    page = _normalize_page(page)
+    limit = 20
+    offset = (page - 1) * limit
+    insights_items = []
+    with get_session() as session:
+        attempts = session.exec(
+            select(JobAttempt)
+            .where(JobAttempt.passed == True)  # noqa: E712
+            .order_by(JobAttempt.created_at.desc())
+            .offset(offset)
+            .limit(limit + 1)
+        ).all()
+
+        has_next = len(attempts) > limit
+        attempts = attempts[:limit]
+
+        for attempt in attempts:
+            bullets = _safe_json_list(attempt.generated_bullets_json)
+            insights_items.append(
+                {
+                    "job_id": attempt.job_id,
+                    "audience": _audience_display(attempt.audience),
+                    "summary": attempt.generated_one_line_summary,
+                    "bullets": bullets[:3],
+                    "created_at": attempt.created_at,
+                }
+            )
+
+    return templates.TemplateResponse(
+        "insights.html",
+        {
+            "request": request,
+            "items": insights_items,
+            "page": page,
+            "has_prev": page > 1,
+            "has_next": has_next,
+        },
+    )
+
+
+@app.get("/web/routes", response_class=HTMLResponse)
+def routes_dashboard(request: Request) -> HTMLResponse:
+    audience_display = {aud: _audience_display(aud) for aud in AUDIENCES}
+    totals = {aud: 0 for aud in AUDIENCES}
+    recent = []
+
+    with get_session() as session:
+        jobs = session.exec(select(Job)).all()
+        for job in jobs:
+            audience_code = job.audience or job.selected_audience or "auto"
+            totals[audience_code] = totals.get(audience_code, 0) + 1
+
+        recent_jobs = session.exec(
+            select(Job).order_by(Job.created_at.desc()).limit(8)
+        ).all()
+        for job in recent_jobs:
+            recent.append(
+                {
+                    "job_id": job.id,
+                    "audience": audience_display.get(
+                        job.audience or job.selected_audience or "auto", "Auto"
+                    ),
+                    "status": job.status,
+                    "created_at": job.created_at,
+                }
+            )
+
+    return templates.TemplateResponse(
+        "routes.html",
+        {
+            "request": request,
+            "audience_display": audience_display,
+            "totals": totals,
+            "recent": recent,
+        },
+    )
+
+
+@app.get("/web/library", response_class=HTMLResponse)
+def library(request: Request, page: int = 1, q: Optional[str] = None) -> HTMLResponse:
+    page = _normalize_page(page)
+    limit = 20
+    offset = (page - 1) * limit
+    search = (q or "").strip()
+    library_items = []
+    with get_session() as session:
+        if search:
+            doc_ids = set(
+                session.exec(
+                    select(Document.id).where(Document.content.contains(search))
+                ).all()
+            )
+            doc_ids.update(
+                session.exec(
+                    select(Document.id)
+                    .join(DocumentTag, DocumentTag.document_id == Document.id)
+                    .join(Tag, Tag.id == DocumentTag.tag_id)
+                    .where(Tag.name.contains(search))
+                ).all()
+            )
+            doc_ids.update(
+                session.exec(
+                    select(Document.id)
+                    .join(DocumentClue, DocumentClue.document_id == Document.id)
+                    .where(DocumentClue.clue_text.contains(search))
+                ).all()
+            )
+            if doc_ids:
+                docs = session.exec(
+                    select(Document)
+                    .where(Document.id.in_(doc_ids))
+                    .order_by(Document.created_at.desc())
+                    .offset(offset)
+                    .limit(limit + 1)
+                ).all()
+            else:
+                docs = []
+        else:
+            docs = session.exec(
+                select(Document)
+                .order_by(Document.created_at.desc())
+                .offset(offset)
+                .limit(limit + 1)
+            ).all()
+
+        has_next = len(docs) > limit
+        docs = docs[:limit]
+
+        for doc in docs:
+            job = session.exec(
+                select(Job)
+                .where(Job.document_id == doc.id)
+                .order_by(Job.created_at.desc())
+            ).first()
+
+            tags = session.exec(
+                select(Tag)
+                .join(DocumentTag, Tag.id == DocumentTag.tag_id)
+                .where(DocumentTag.document_id == doc.id)
+            ).all()
+
+            clues = session.exec(
+                select(DocumentClue).where(DocumentClue.document_id == doc.id)
+            ).all()
+
+            library_items.append(
+                {
+                    "document_id": doc.id,
+                    "job_id": job.id if job else None,
+                    "audience": _audience_display(
+                        job.audience or job.selected_audience or "auto"
+                    )
+                    if job
+                    else "Auto",
+                    "status": job.status if job else "pending",
+                    "snippet": (doc.content or "")[:200],
+                    "tags": [tag.name for tag in tags],
+                    "clues": [clue.clue_text for clue in clues],
+                }
+            )
+
+    return templates.TemplateResponse(
+        "library.html",
+        {
+            "request": request,
+            "items": library_items,
+            "page": page,
+            "has_prev": page > 1,
+            "has_next": has_next,
+            "query": search,
+        },
+    )
+
+
+@app.get("/web/watchlist", response_class=HTMLResponse)
+def watchlist(request: Request, page: int = 1) -> HTMLResponse:
+    page = _normalize_page(page)
+    limit = 20
+    items = []
+    with get_session() as session:
+        jobs = session.exec(
+            select(Job).order_by(Job.created_at.desc()).limit(30)
+        ).all()
+
+        for job in jobs:
+            issues = []
+            if job.status == "failed":
+                issues.append("Failed evaluation")
+
+            attempt = session.exec(
+                select(JobAttempt)
+                .where(JobAttempt.job_id == job.id)
+                .order_by(JobAttempt.attempt_no.desc())
+            ).first()
+
+            if attempt and not attempt.generated_mindmap:
+                issues.append("Mind map missing")
+            if attempt and not attempt.generated_bullets_json:
+                issues.append("Decision bullets missing")
+
+            if not issues:
+                continue
+
+            items.append(
+                {
+                    "job_id": job.id,
+                    "audience": _audience_display(
+                        job.audience or job.selected_audience or "auto"
+                    ),
+                    "status": job.status,
+                    "issues": issues,
+                    "created_at": job.created_at,
+                }
+            )
+
+    start = (page - 1) * limit
+    end = start + limit
+    page_items = items[start:end]
+    has_next = len(items) > end
+
+    return templates.TemplateResponse(
+        "watchlist.html",
+        {
+            "request": request,
+            "items": page_items,
+            "page": page,
+            "has_prev": page > 1,
+            "has_next": has_next,
+        },
+    )
+
+
+@app.get("/web/about", response_class=HTMLResponse)
+def about(request: Request) -> HTMLResponse:
+    steps = [
+        "Ingest: paste text, provide a URL, or use sample content.",
+        "Route: classify the audience (or honor a manual selection).",
+        "Specialist generate: produce one-line summary, decision bullets, tags, key clues, and mind map.",
+        "Evaluate: check required sections, word count, and quality rules.",
+        "Revise: iterate up to max retries, then persist outputs.",
+    ]
+    return templates.TemplateResponse(
+        "about.html",
+        {
+            "request": request,
+            "steps": steps,
         },
     )
 
@@ -194,17 +486,17 @@ def create_document(
         source_type = "text"
 
     if not content:
+        error_message = "Provide text, URL, or choose sample content."
+        if input_url.strip():
+            error_message = "URL fetch failed (blocked or empty content)."
+        context = _build_home_context(audience)
         return templates.TemplateResponse(
             "home.html",
             {
                 "request": request,
-                "audiences": AUDIENCES,
-                "audience_display": {aud: _audience_display(aud) for aud in AUDIENCES},
-                "selected_audience": "auto",
+                **context,
                 "sample_text": SAMPLE_TEXT,
-                "history": [],
-                "route_counts": {aud: 0 for aud in AUDIENCES},
-                "error": "Provide text, URL, or choose sample content.",
+                "error": error_message,
             },
             status_code=400,
         )
@@ -361,12 +653,17 @@ def document_detail(request: Request, doc_id: int) -> HTMLResponse:
             select(DocumentClue).where(DocumentClue.document_id == doc.id)
         ).all()
 
+    audience_label = None
+    if job:
+        audience_label = _audience_display(job.audience or job.selected_audience or "auto")
+
     return templates.TemplateResponse(
         "document_detail.html",
         {
             "request": request,
             "document": doc,
             "job": job,
+            "audience_label": audience_label,
             "final_summary": final_summary,
             "tags": tags,
             "clues": clues,
@@ -376,7 +673,19 @@ def document_detail(request: Request, doc_id: int) -> HTMLResponse:
 
 def fetch_url_text(url: str) -> str:
     try:
-        response = httpx.get(url, timeout=10.0, follow_redirects=True)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0 Safari/537.36"
+            )
+        }
+        response = httpx.get(
+            url,
+            timeout=20.0,
+            follow_redirects=True,
+            headers=headers,
+        )
         response.raise_for_status()
     except Exception:
         return ""

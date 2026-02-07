@@ -4,7 +4,12 @@
 
 {% block content %}
   <div class="card">
-    <h2>Document #{{ document.id }}</h2>
+    <h2>
+      Document #{{ document.id }}
+      {% if audience_label %}
+        <span class="badge badge-inline">{{ audience_label }}</span>
+      {% endif %}
+    </h2>
     <p class="muted">
       Source: {{ document.source_type }}
       {% if job %}
@@ -12,13 +17,35 @@
         • Status: {{ job.status }}
       {% endif %}
     </p>
-    <p>{{ document.content }}</p>
+    <div class="actions">
+      {% if job %}
+        <a class="button" href="/web/jobs/{{ job.id }}">Back to Request</a>
+      {% endif %}
+      <a class="button" href="/web">Back Home</a>
+    </div>
+    {% if document.content and document.content|length > 600 %}
+      <p>{{ document.content[:600] }}...</p>
+      <details>
+        <summary>Show full document</summary>
+        <p>{{ document.content }}</p>
+      </details>
+    {% else %}
+      <p>{{ document.content }}</p>
+    {% endif %}
   </div>
 
   <div class="card">
     <h3>One-line Summary</h3>
     {% if final_summary and final_summary.one_line_summary %}
-      <p>{{ final_summary.one_line_summary }}</p>
+      {% if final_summary.one_line_summary|length > 240 %}
+        <p>{{ final_summary.one_line_summary[:240] }}...</p>
+        <details>
+          <summary>Show full summary</summary>
+          <p>{{ final_summary.one_line_summary }}</p>
+        </details>
+      {% else %}
+        <p>{{ final_summary.one_line_summary }}</p>
+      {% endif %}
     {% else %}
       <p class="muted">No accepted summary yet.</p>
     {% endif %}

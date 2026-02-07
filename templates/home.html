@@ -12,12 +12,38 @@
   </div>
 
   <div class="card">
+    <h3>At a Glance</h3>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.total_docs }}</div>
+        <div class="muted">Documents</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.total_jobs }}</div>
+        <div class="muted">Requests</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.total_completed }}</div>
+        <div class="muted">Completed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.total_failed }}</div>
+        <div class="muted">Failed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">{{ stats.success_rate }}%</div>
+        <div class="muted">Success Rate</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Start a New Analysis</h2>
     <p class="muted">Paste text, enter a URL, or use the sample content.</p>
     {% if error %}
       <p class="error">{{ error }}</p>
     {% endif %}
-    <form method="post" action="/web/documents">
+    <form method="post" action="/web/documents" data-loading>
       <div class="row">
         <div>
           <label for="input_text">Paste Text</label>
@@ -27,7 +53,7 @@
           <label for="input_url">URL</label>
           <input id="input_url" name="input_url" type="text" placeholder="https://example.com/article" />
           <div style="margin-top: 16px;">
-            <label for="audience">Audience</label>
+            <label for="audience">Audience (Auto by default)</label>
             <select id="audience" name="audience">
               {% for aud in audiences %}
                 <option value="{{ aud }}" {% if aud == selected_audience %}selected{% endif %}>
@@ -59,7 +85,10 @@
             <li>
               {% if item.job_id %}
                 <a class="link-card" href="/web/jobs/{{ item.job_id }}">
-                  <div><strong>Route:</strong> {{ audience_display.get(item.audience, item.audience) }} • <span class="muted">{{ item.status }}</span></div>
+              <div>
+                <strong>Route:</strong> {{ audience_display.get(item.audience, item.audience) }}
+                • <span class="status-chip status-{{ item.status }}">{{ item.status }}</span>
+              </div>
                   <div class="muted">{{ item.snippet }}</div>
                   {% if item.summary %}
                     <div><strong>One-line summary:</strong> {{ item.summary }}</div>
@@ -69,7 +98,10 @@
                 </a>
               {% else %}
                 <a class="link-card" href="/web/documents/{{ item.document_id }}">
-                  <div><strong>Route:</strong> {{ audience_display.get(item.audience, item.audience) }} • <span class="muted">{{ item.status }}</span></div>
+                  <div>
+                    <strong>Route:</strong> {{ audience_display.get(item.audience, item.audience) }}
+                    • <span class="status-chip status-{{ item.status }}">{{ item.status }}</span>
+                  </div>
                   <div class="muted">{{ item.snippet }}</div>
                   {% if item.summary %}
                     <div><strong>One-line summary:</strong> {{ item.summary }}</div>

@@ -4,8 +4,24 @@
 
 {% block content %}
   <div class="card">
-    <h2>Request {{ job_ref }}</h2>
-    <p class="muted">Audience: {{ audience_label }} • Status: {{ job.status }}</p>
+    <h2>
+      Request {{ job_ref }}
+      <span class="badge badge-inline">{{ audience_label }}</span>
+    </h2>
+    <p class="muted">
+      Audience: {{ audience_label }} •
+      <span class="status-chip status-{{ job.status }}">{{ job.status }}</span>
+    </p>
+  </div>
+
+  <div class="sticky-actions">
+    <form method="post" action="/web/jobs/{{ job.id }}/run" data-loading>
+      <button class="button" type="submit">Analyze Now</button>
+    </form>
+    {% if document %}
+      <a class="button" href="/web/documents/{{ document.id }}">View Source</a>
+    {% endif %}
+    <a class="button" href="/web">Back Home</a>
   </div>
 
   <div class="row">
@@ -20,7 +36,7 @@
         <li>Mind map</li>
       </ul>
       <div class="actions">
-        <form method="post" action="/web/jobs/{{ job.id }}/run">
+        <form method="post" action="/web/jobs/{{ job.id }}/run" data-loading>
           <button class="button" type="submit">Analyze Now</button>
         </form>
       </div>
@@ -41,6 +57,20 @@
   <div class="card">
     <details>
       <summary>Metadata (Attempts &amp; Trace Legend)</summary>
+      <h4>Attempt Timeline</h4>
+      {% if attempts %}
+        <div class="timeline">
+          {% for attempt in attempts %}
+            <div class="timeline-item">
+              <span class="timeline-dot {% if attempt.passed %}passed{% else %}failed{% endif %}"></span>
+              Attempt {{ attempt.attempt_no }}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No attempts yet.</p>
+      {% endif %}
+
       <h4>Attempts</h4>
       {% if attempts %}
         <ul>
@@ -78,7 +108,15 @@
   <div class="card">
     <h3>One-line Summary</h3>
     {% if final_summary and final_summary.one_line_summary %}
-      <p>{{ final_summary.one_line_summary }}</p>
+      {% if final_summary.one_line_summary|length > 240 %}
+        <p>{{ final_summary.one_line_summary[:240] }}...</p>
+        <details>
+          <summary>Show full summary</summary>
+          <p>{{ final_summary.one_line_summary }}</p>
+        </details>
+      {% else %}
+        <p>{{ final_summary.one_line_summary }}</p>
+      {% endif %}
     {% else %}
       <p class="muted">No accepted summary yet.</p>
     {% endif %}

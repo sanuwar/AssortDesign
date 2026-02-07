@@ -173,13 +173,44 @@ def run_job_pipeline(session: Session, job: Job) -> Job:
     graph.add_edge("persist_results", END)
 
     app = graph.compile()
-    app.invoke(
-        {
-            "attempt_no": 1,
-            "max_retries": job.max_retries,
-            "fix_instructions": [],
-        }
-    )
+    try:
+        app.invoke(
+            {
+                "attempt_no": 1,
+                "max_retries": job.max_retries,
+                "fix_instructions": [],
+            }
+        )
+    except Exception as exc:
+        reason = _format_failure_reason(exc)
+        job.status = "failed"
+        session.add(job)
+        session.commit()
+
+        failure_attempt = JobAttempt(
+            job_id=job.id,
+            attempt_no=job.attempt_count + 1,
+            audience=job.audience or job.selected_audience or "auto",
+            agent_used="system_error",
+            generated_one_line_summary="",
+            generated_tags_json="[]",
+            generated_clues_json="[]",
+            generated_bullets_json="[]",
+            generated_mindmap="",
+            evaluator_json=json.dumps(
+                {
+                    "pass": False,
+                    "word_count": 0,
+                    "missing_sections": [],
+                    "fail_reasons": [reason],
+                    "fix_instructions": [],
+                }
+            ),
+            passed=False,
+        )
+        session.add(failure_attempt)
+        session.commit()
+        raise
 
     session.refresh(job)
     return job
@@ -243,3 +274,18 @@ def _fallback_mind_map(required_sections: List[str], bullets: List[str]) -> str:
         if title:
             lines.append(f"    {title}")
     return "\n".join(lines)
+
+
+def _format_failure_reason(exc: Exception) -> str:
+    message = str(exc)
+    lower = message.lower()
+
+    if "insufficient_quota" in lower or "quota" in lower or "rate limit" in lower:
+        return "OpenAI quota or rate limit exceeded."
+    if "invalid_api_key" in lower or "api key" in lower or "authentication" in lower:
+        return "OpenAI API key invalid or missing."
+    if "model_not_found" in lower or "model" in lower and "not found" in lower:
+        return "Requested model is unavailable."
+    if "timeout" in lower or "timed out" in lower:
+        return "LLM request timed out."
+    return f"LLM request failed: {message}"

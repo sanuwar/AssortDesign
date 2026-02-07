@@ -43,7 +43,10 @@
         {% for doc in documents %}
           <li>
             <a class="link-card" href="/web/jobs/{{ doc.job_id }}">
-              <div><strong>Route:</strong> {{ audience_display.get(doc.audience, doc.audience) }} • <span class="muted">{{ doc.status }}</span></div>
+              <div>
+                <strong>Route:</strong> {{ audience_display.get(doc.audience, doc.audience) }}
+                • <span class="status-chip status-{{ doc.status }}">{{ doc.status }}</span>
+              </div>
               <div class="muted">{{ doc.snippet }}</div>
               {% if doc.summary %}
                 <div><strong>One-line summary:</strong> {{ doc.summary }}</div>

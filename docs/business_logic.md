@@ -6,10 +6,10 @@ This document defines the business logic for the Asort Design app using FastAPI,
 ## Core Entities
 - Document: user-provided content from pasted text, URL extraction, or sample text.
 - Job: processing request tied to a Document, with selected audience, routed audience, status, attempts, and constraints.
-- Job Attempt: one pipeline run containing generated summary, tags, quiz questions, evaluator verdict, and pass/fail.
+- Job Attempt: one pipeline run containing one-line summary, key clues, decision bullets, mind map, tags, evaluator verdict, and pass/fail.
 - Tag: unique label assigned to a Document.
 - DocumentTag: join table between Document and Tag.
-- QuizQuestion: question tied to a Document.
+- DocumentClue: key clue tied to a Document.
 
 ## Inputs
 - Text input (paste).
@@ -46,9 +46,11 @@ The LangGraph pipeline runs per Job:
 ### specialist_generate
 - Use the audience profile system prompt from `app/agent_profiles.yaml`.
 - Generate:
-  - summary text
+  - one-line summary
+  - key clues list
+  - decision bullets
+  - mind map
   - tags list
-  - quiz questions list
 - Enforce `default_max_words` for the selected audience unless overridden by Job.
 
 ### evaluate
@@ -62,11 +64,11 @@ The LangGraph pipeline runs per Job:
 
 ### revise
 - If evaluation fails and attempts < max retries:
-  - Use evaluator feedback to regenerate summary, tags, and questions.
+  - Use evaluator feedback to regenerate one-line summary, clues, bullets, and mind map.
 - Max retries = 2 by default.
 
 ### persist
-- Persist attempts, final accepted summary, tags, and quiz questions.
+- Persist attempts, final accepted one-line summary, decision bullets, mind map, tags, and clues.
 - If all attempts fail, persist final attempt and mark job as failed.
 
 ## Status Rules

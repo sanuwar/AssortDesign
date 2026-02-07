@@ -8,6 +8,7 @@ overall FastAPI + LangGraph application.
 ### app/main.py
 Primary FastAPI entry point. Defines the web routes, loads templates, handles
 form submissions, creates documents and jobs, and triggers the pipeline.
+This is where the web router and request handlers live.
 
 ### app/db.py
 Database setup and helpers. Configures the SQLite engine, ensures the database
@@ -15,11 +16,13 @@ file exists, and provides a session factory.
 
 ### app/models.py
 Data models using SQLModel. Defines the schema for documents, jobs, attempts,
-tags, and quiz questions, along with relationships.
+tags, and document clues, along with relationships.
 
 ### app/graph.py
 LangGraph orchestration layer. Currently a scaffold that creates a mock attempt
 and marks a job completed; later will run the full agentic pipeline.
+This file contains the pipeline "router" step (`route_audience_node`) used to
+determine the audience.
 
 ### app/llm.py
 OpenAI client helper. Detects whether an API key exists and exposes a simple
@@ -45,7 +48,7 @@ audience selection.
 
 ### templates/job_detail.html
 Job detail UI. Displays status, audience badge, attempts list, and results like
-tags and quiz questions.
+tags, key clues, decision bullets, and mind map.
 
 ### templates/document_detail.html
 Document detail UI. Displays document content and any associated tags and

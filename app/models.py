@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 from typing import List, Optional
 
@@ -19,7 +17,7 @@ class Document(SQLModel, table=True):
 
     jobs: List["Job"] = Relationship(back_populates="document")
     tags: List["Tag"] = Relationship(back_populates="documents", link_model=DocumentTag)
-    quiz_questions: List["QuizQuestion"] = Relationship(back_populates="document")
+    clues: List["DocumentClue"] = Relationship(back_populates="document")
 
 
 class Job(SQLModel, table=True):
@@ -43,9 +41,11 @@ class JobAttempt(SQLModel, table=True):
     attempt_no: int
     audience: str
     agent_used: str
-    generated_summary: str
+    generated_one_line_summary: str
     generated_tags_json: str
-    generated_quiz_json: str
+    generated_clues_json: str
+    generated_bullets_json: str
+    generated_mindmap: str
     evaluator_json: str
     passed: bool
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -60,10 +60,10 @@ class Tag(SQLModel, table=True):
     documents: List[Document] = Relationship(back_populates="tags", link_model=DocumentTag)
 
 
-class QuizQuestion(SQLModel, table=True):
+class DocumentClue(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     document_id: int = Field(foreign_key="document.id")
-    question_text: str
+    clue_text: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    document: Optional[Document] = Relationship(back_populates="quiz_questions")
+    document: Optional[Document] = Relationship(back_populates="clues")

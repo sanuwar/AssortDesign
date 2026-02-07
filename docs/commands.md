@@ -1,28 +1,43 @@
-#creating new branch and push it to remote:
+# Commands - Asort Design
+
+## Branching
+```powershell
 git switch -c feature/agent-profiles
 git push -u origin feature/agent-profiles
+```
 
-Ctrl+Shift+P → Python: Select Interpreter
-Pick: python.exe
+## Virtual Environment
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## VS Code Interpreter
+Ctrl+Shift+P → Python: Select Interpreter  
+Pick: `C:\Users\sanuw\AsortDesing\.venv\Scripts\python.exe`
 
 Ctrl+Shift+P → Developer: Reload Window
 
-activating venv:
-C:\Users\sanuw\AsortDesing\.venv\Scripts\Activate.ps1
+## Run Server
+```powershell
+python -m uvicorn app.main:app --reload --env-file .env
+```
 
+## LangSmith Tracing
+Set these in `.env`, then restart the server:
+```
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_key_here
+LANGSMITH_PROJECT=asort-design
+```
 
-# 1) Create virtual environment
-python -m venv .venv
+## Mermaid (Offline Rendering)
+Replace `static/mermaid.min.js` with the official Mermaid build to render mind maps
+without relying on the CDN fallback.
 
-# 2) Activate it
-.\.venv\Scripts\Activate.ps1
-
-# 3) Upgrade pip (recommended)
-python -m pip install --upgrade pip
-
-# 4) Install dependencies
-pip install -r requirements.txt
-
-
-
-
+## Reset Local DB (After Schema Changes)
+```powershell
+Remove-Item -Force .\data\asort_design.db
+```

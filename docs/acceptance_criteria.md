@@ -42,9 +42,11 @@
 
 ## Generation
 - The specialist generation produces:
-  - summary
+  - one-line summary
+  - key clues list
+  - decision bullets (3 to 5)
+  - mind map (Mermaid)
   - tags list
-  - quiz questions list
 - Output follows audience-specific prompts, required sections, and max words.
 
 ## Evaluation
@@ -53,25 +55,27 @@
 
 ## Persistence
 - Each attempt is stored in `job_attempts`.
-- Final accepted summary is stored on success.
+- Final accepted one-line summary, decision bullets, and mind map are stored on success.
 - If all attempts fail, job is marked failed and the last attempt is persisted.
 - Tags are stored and linked to the Document.
-- Quiz questions are stored for the Document.
+- Key clues are stored for the Document.
 
 ## Job Detail Page
 - GET `/web/jobs/{job_id}` shows:
   - audience badge and status
   - attempt history with pass/fail and reasons
-  - summary preview for each attempt
-  - final accepted summary
+  - one-line summary preview for each attempt
+  - final accepted one-line summary
+  - decision bullets
+  - mind map
   - tags list
-  - quiz questions list
+  - key clues list
 
 ## Document Detail Page
 - GET `/web/documents/{doc_id}` shows:
   - document content
   - tags
-  - quiz questions
+  - key clues
 
 ## Test Notes (Non-Binding)
 The following notes align acceptance testing with current business logic and

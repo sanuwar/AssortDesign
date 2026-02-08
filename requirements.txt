@@ -10,3 +10,4 @@ langsmith
 openai
 python-multipart
 pyyaml
+pytest

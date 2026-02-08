@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}About - Asort Design{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h2>About / How It Works</h2>
+    <p class="muted">
+      Asort Design is a lightweight demo that showcases an agentic workflow for professional audiences.
+      The purpose of this web app is to illustrate the process end-to-end for stakeholders in related fields.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>Pipeline Overview</h3>
+    <ol>
+      {% for step in steps %}
+        <li>{{ step }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>What You Get</h3>
+    <ul>
+      <li>One-line summary</li>
+      <li>Decision bullets (3–5)</li>
+      <li>Tags and key clues</li>
+      <li>Mind map</li>
+      <li>Attempt history and evaluation feedback</li>
+    </ul>
+  </div>
+{% endblock %}

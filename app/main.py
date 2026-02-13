@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -13,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -45,6 +46,7 @@ MAX_DOC_CHARS = 20000
 MAX_URL_CHARS = 2048
 MAX_SEARCH_CHARS = 200
 MAX_URL_REDIRECTS = 3
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 RATE_LIMIT_WINDOW_SEC = 60
 RATE_LIMIT_MAX = 20
 
@@ -162,7 +164,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Assort Design", lifespan=lifespan)
+app = FastAPI(title="Assort App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -474,6 +476,7 @@ def create_document(
     input_url: str = Form(""),
     use_sample: Optional[str] = Form(None),
     audience: str = Form("auto"),
+    upload_file: Optional[UploadFile] = File(None),
 ) -> HTMLResponse:
     _check_rate_limit(request)
     content = ""
@@ -497,6 +500,35 @@ def create_document(
     if use_sample:
         content = SAMPLE_TEXT
         source_type = "sample"
+    elif upload_file and upload_file.filename:
+        fname = upload_file.filename.lower()
+        if not (fname.endswith(".pdf") or fname.endswith(".docx")):
+            context = _build_home_context(audience)
+            return templates.TemplateResponse(
+                "home.html",
+                {
+                    "request": request,
+                    **context,
+                    "sample_text": SAMPLE_TEXT,
+                    "error": "Only PDF and Word (.docx) files are supported.",
+                },
+                status_code=400,
+            )
+        file_bytes = upload_file.file.read(MAX_UPLOAD_BYTES + 1)
+        if len(file_bytes) > MAX_UPLOAD_BYTES:
+            context = _build_home_context(audience)
+            return templates.TemplateResponse(
+                "home.html",
+                {
+                    "request": request,
+                    **context,
+                    "sample_text": SAMPLE_TEXT,
+                    "error": "File is too large (max 10 MB).",
+                },
+                status_code=400,
+            )
+        content = _extract_file_text(file_bytes, upload_file.filename)
+        source_type = "upload_pdf" if fname.endswith(".pdf") else "upload_docx"
     elif input_url:
         content = fetch_url_text(input_url)
         source_type = "url"
@@ -505,9 +537,11 @@ def create_document(
         source_type = "text"
 
     if not content:
-        error_message = "Provide text, URL, or choose sample content."
+        error_message = "Provide text, a URL, upload a PDF/Word file, or choose sample content."
         if input_url:
             error_message = "URL fetch failed (blocked or empty content)."
+        elif upload_file and upload_file.filename:
+            error_message = "Could not extract text from the uploaded file. Is it a text-based (not scanned) PDF or valid .docx?"
         context = _build_home_context(audience)
         return templates.TemplateResponse(
             "home.html",
@@ -756,6 +790,24 @@ def attempt_detail(request: Request, attempt_id: int) -> HTMLResponse:
             "evaluator_data": _safe_json(attempt.evaluator_json),
         },
     )
+
+
+def _extract_file_text(file_bytes: bytes, filename: str) -> str:
+    """Extract plain text from an uploaded PDF or Word (.docx) file."""
+    name_lower = (filename or "").lower()
+    try:
+        if name_lower.endswith(".pdf"):
+            import pypdf  # imported here so the app still starts without the package
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            parts = [page.extract_text() or "" for page in reader.pages]
+            return " ".join(parts)
+        if name_lower.endswith(".docx"):
+            import docx  # python-docx
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return " ".join(p.text for p in doc.paragraphs if p.text.strip())
+    except Exception:
+        logger.exception("File text extraction failed for %s", filename)
+    return ""
 
 
 def fetch_url_text(url: str) -> str:

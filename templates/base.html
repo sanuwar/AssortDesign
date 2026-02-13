@@ -465,6 +465,12 @@
         overflow-x: auto;
         border: 1px solid var(--card-border);
       }
+      .quote-preview {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
       h1, h2, h3, h4 {
         color: var(--accent);
       }
@@ -506,6 +512,7 @@
         <a class="brand" href="/web">Assort App</a>
         <nav class="nav-links">
           <a href="/web/documents">Records</a>
+          <a href="/web/insights/tags">Insights</a>
           <a href="/web/watchlist">Watchlist</a>
           <a href="/web/about">About</a>
         </nav>
@@ -519,6 +526,10 @@
         <span>Built by <strong>Sanuwar Rashid</strong> &mdash; a showcase of agentic AI in practice.</span>
         <span class="site-footer-sep">·</span>
         <span class="site-footer-muted">Powered by LangGraph &amp; OpenAI</span>
+        <span class="site-footer-sep">·</span>
+        <span class="site-footer-muted">
+          App Version: {{ request.state.app_version }} · Schema Version: {{ request.state.schema_version }}
+        </span>
       </div>
     </footer>
 

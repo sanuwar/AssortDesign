@@ -32,6 +32,11 @@
         Routing reasons: {{ routing_reasons | join("; ") }}
       </p>
     {% endif %}
+    {% if support_warning %}
+      <p class="error">
+        Needs review: fewer than 3 supported citations found.
+      </p>
+    {% endif %}
   </div>
 
   {% if job.status == "running" %}
@@ -88,6 +93,96 @@
       </div>
     </div>
   </div>
+
+  <div class="card">
+    <h3>Citation Finder</h3>
+    {% if citation_summary %}
+      <p class="muted">
+        Citations found: {{ citation_summary.supported }}
+        ({{ citation_summary.strong }} strong, {{ citation_summary.medium }} medium, {{ citation_summary.weak }} weak)
+      </p>
+    {% endif %}
+    {% if claims %}
+      {% for claim in claims %}
+        <div class="card">
+          <p><strong>Claim:</strong> {{ claim.claim_text }}</p>
+          {% if claim.quote_text %}
+            <p class="muted"><strong>Quote:</strong></p>
+            <p class="quote-preview">{{ claim.quote_text }}</p>
+            <div class="actions">
+              <button class="button" type="button" data-copy="{{ claim.quote_text }}">Copy quote</button>
+            </div>
+            {% if claim.context %}
+              <details>
+                <summary>Show context</summary>
+                <p class="muted">
+                  {{ claim.context.prefix }}{{ claim.context.before }}
+                  <strong>{{ claim.context.quote }}</strong>
+                  {{ claim.context.after }}{{ claim.context.suffix }}
+                </p>
+              </details>
+            {% endif %}
+            {% if claim.source_start is not none and claim.source_end is not none %}
+              <p class="muted">Offsets: {{ claim.source_start }}–{{ claim.source_end }}</p>
+            {% endif %}
+          {% else %}
+            <p class="muted">No supporting quote found.</p>
+          {% endif %}
+          <p class="muted">
+            Confidence: {{ (claim.confidence * 100) | round | int }}%
+            {% if claim.confidence >= 0.8 %}
+              <span class="badge badge-inline">Strong</span>
+            {% elif claim.confidence >= 0.6 %}
+              <span class="badge badge-inline">Medium</span>
+            {% else %}
+              <span class="badge badge-inline">Weak</span>
+            {% endif %}
+          </p>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No citations available yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Risk & Compliance</h3>
+    {% if risk_flags %}
+      <ul>
+        {% for flag in risk_flags %}
+          <li>
+            <strong>{{ flag.severity | upper }}</strong> — {{ flag.category }}:
+            <span class="muted">{{ flag.text_span }}</span>
+            {% if flag.suggested_fix %}
+              <div class="muted">Suggestion: {{ flag.suggested_fix }}</div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No risk flags detected.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    document.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-copy]");
+      if (!button) {
+        return;
+      }
+      var text = button.getAttribute("data-copy") || "";
+      if (!navigator.clipboard) {
+        return;
+      }
+      navigator.clipboard.writeText(text).then(function () {
+        var original = button.textContent;
+        button.textContent = "Copied";
+        setTimeout(function () {
+          button.textContent = original;
+        }, 1200);
+      });
+    });
+  </script>
 
   <div class="card">
     <details>

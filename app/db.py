@@ -65,3 +65,57 @@ def _ensure_indexes() -> None:
                 "ON documenttag (tag_id)"
             )
         )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_tagalias_alias "
+                "ON tagalias (alias)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_tagalias_canonical "
+                "ON tagalias (canonical)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_tag_summary_doc "
+                "ON documenttagsummary (document_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_tag_summary_job "
+                "ON documenttagsummary (job_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_tag_summary_domain "
+                "ON documenttagsummary (domain)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_claim_doc "
+                "ON documentclaim (document_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_claim_job "
+                "ON documentclaim (job_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_risk_doc "
+                "ON documentriskflag (document_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_doc_risk_job "
+                "ON documentriskflag (job_id)"
+            )
+        )

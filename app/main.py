@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 import ipaddress
@@ -23,7 +24,28 @@ from sqlmodel import select
 from app.config import get_audience_profile
 from app.db import get_session, init_db
 from app.graph import run_job_pipeline
-from app.models import Document, DocumentClue, DocumentTag, Job, JobAttempt, Tag
+from app.models import (
+    Document,
+    DocumentClaim,
+    DocumentClue,
+    DocumentRiskFlag,
+    DocumentTag,
+    DocumentTagSummary,
+    Job,
+    JobAttempt,
+    Tag,
+    TagAlias,
+)
+from app.schema_version import SCHEMA_VERSION
+from app.version import APP_VERSION
+from app.tag_intel import (
+    compute_bridge_tags,
+    compute_cooccurrence_pairs,
+    compute_jaccard,
+    count_domains,
+    count_tags,
+    parse_summary_tags,
+)
 
 APP_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = APP_DIR.parent / "templates"
@@ -49,6 +71,12 @@ MAX_URL_REDIRECTS = 3
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 RATE_LIMIT_WINDOW_SEC = 60
 RATE_LIMIT_MAX = 20
+SHOW_TOOL_BADGES = os.getenv("SHOW_TOOL_BADGES", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 logger = logging.getLogger(__name__)
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
@@ -158,6 +186,39 @@ def _cross_detail_from_job(job: Job) -> Optional[str]:
         return "Mixed stakeholders (manual override)"
     return "Mixed stakeholders (auto-routed)"
 
+
+def _build_claim_views(
+    content: str | None, claims: list[DocumentClaim]
+) -> list[dict[str, object]]:
+    views: list[dict[str, object]] = []
+    text = content or ""
+    for claim in claims:
+        context = None
+        if text and claim.source_start is not None and claim.source_end is not None:
+            start = max(0, claim.source_start)
+            end = min(len(text), claim.source_end)
+            ctx_start = max(0, start - 120)
+            ctx_end = min(len(text), end + 120)
+            context = {
+                "before": text[ctx_start:start],
+                "quote": text[start:end],
+                "after": text[end:ctx_end],
+                "prefix": "…" if ctx_start > 0 else "",
+                "suffix": "…" if ctx_end < len(text) else "",
+            }
+        views.append(
+            {
+                "claim_text": claim.claim_text,
+                "quote_text": claim.quote_text,
+                "source_start": claim.source_start,
+                "source_end": claim.source_end,
+                "confidence": float(claim.confidence or 0.0),
+                "context": context,
+            }
+        )
+    views.sort(key=lambda item: item["confidence"], reverse=True)
+    return views
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -167,6 +228,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Assort App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@app.middleware("http")
+async def add_version_context(request: Request, call_next):
+    request.state.app_version = APP_VERSION
+    request.state.schema_version = SCHEMA_VERSION
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)
@@ -338,6 +406,96 @@ def about(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/web/insights/tags", response_class=HTMLResponse)
+def tag_insights(request: Request) -> HTMLResponse:
+    with get_session() as session:
+        summaries = session.exec(
+            select(DocumentTagSummary)
+            .order_by(DocumentTagSummary.created_at.desc())
+            .limit(200)
+        ).all()
+
+    last_20 = summaries[:20]
+    prev_20 = summaries[20:40]
+    domain_counts = count_domains(last_20)
+
+    recent_tag_counts = count_tags(last_20)
+    prev_tag_counts = count_tags(prev_20)
+    rising_tags = []
+    for tag, count in recent_tag_counts.items():
+        delta = count - prev_tag_counts.get(tag, 0)
+        if delta > 0:
+            rising_tags.append({"tag": tag, "delta": delta, "count": count})
+    rising_tags.sort(key=lambda item: (-item["delta"], item["tag"]))
+
+    cooccurrence = [
+        {"tag_a": pair[0], "tag_b": pair[1], "count": count}
+        for pair, count in compute_cooccurrence_pairs(last_20)
+    ]
+    bridge_tags = [
+        {"tag": tag, "domains": domains}
+        for tag, domains in compute_bridge_tags(summaries)
+    ]
+
+    return templates.TemplateResponse(
+        "tag_insights.html",
+        {
+            "request": request,
+            "domain_counts": domain_counts,
+            "rising_tags": rising_tags[:15],
+            "cooccurrence": cooccurrence,
+            "bridge_tags": bridge_tags,
+            "has_history": len(summaries) >= 20,
+            "has_rising_history": len(summaries) >= 40,
+        },
+    )
+
+
+@app.get("/web/tags/aliases", response_class=HTMLResponse)
+def tag_aliases(request: Request) -> HTMLResponse:
+    with get_session() as session:
+        aliases = session.exec(select(TagAlias).order_by(TagAlias.alias)).all()
+    return templates.TemplateResponse(
+        "tag_aliases.html",
+        {"request": request, "aliases": aliases},
+    )
+
+
+@app.post("/web/tags/aliases", response_class=HTMLResponse)
+def create_tag_alias(
+    request: Request,
+    alias: str = Form(""),
+    canonical: str = Form(""),
+) -> HTMLResponse:
+    alias_value = alias.strip()
+    canonical_value = canonical.strip()
+    if not alias_value or not canonical_value:
+        with get_session() as session:
+            aliases = session.exec(select(TagAlias).order_by(TagAlias.alias)).all()
+        return templates.TemplateResponse(
+            "tag_aliases.html",
+            {
+                "request": request,
+                "aliases": aliases,
+                "error": "Alias and canonical value are required.",
+            },
+            status_code=400,
+        )
+
+    with get_session() as session:
+        existing = session.exec(
+            select(TagAlias).where(TagAlias.alias == alias_value)
+        ).first()
+        if existing:
+            existing.canonical = canonical_value
+            session.add(existing)
+        else:
+            session.add(TagAlias(alias=alias_value, canonical=canonical_value))
+        session.commit()
+
+    return RedirectResponse(url="/web/tags/aliases", status_code=303)
+
+
 @app.get("/web/visuals", response_class=HTMLResponse)
 def project_visuals() -> FileResponse:
     visuals_path = TEMPLATES_DIR / "project_visuals.html"
@@ -349,6 +507,7 @@ def documents_index(
     request: Request,
     audience: Optional[str] = None,
     q: Optional[str] = None,
+    domain: Optional[str] = None,
     page: int = 1,
 ) -> HTMLResponse:
     page = _normalize_page(page)
@@ -356,6 +515,7 @@ def documents_index(
     search = (q or "").strip()
     if len(search) > MAX_SEARCH_CHARS:
         search = search[:MAX_SEARCH_CHARS]
+    domain_filter = (domain or "").strip() or None
 
     audience_display = {aud: _audience_display(aud) for aud in AUDIENCES}
     selected_audience = audience if audience in AUDIENCES else "all"
@@ -405,6 +565,8 @@ def documents_index(
         doc_ids = [doc.id for doc in docs]
         latest_jobs: dict[int, Job] = {}
         latest_attempts: dict[int, JobAttempt] = {}
+        latest_summaries: dict[int, DocumentTagSummary] = {}
+        tool_counts: dict[int, dict[str, object]] = {}
 
         if doc_ids:
             jobs = session.exec(
@@ -427,6 +589,41 @@ def documents_index(
                     if attempt.job_id not in latest_attempts:
                         latest_attempts[attempt.job_id] = attempt
 
+            summaries = session.exec(
+                select(DocumentTagSummary)
+                .where(DocumentTagSummary.document_id.in_(doc_ids))
+                .order_by(DocumentTagSummary.created_at.desc())
+            ).all()
+            for summary in summaries:
+                if summary.document_id not in latest_summaries:
+                    latest_summaries[summary.document_id] = summary
+
+            if SHOW_TOOL_BADGES:
+                job_ids = [job.id for job in latest_jobs.values()]
+                if job_ids:
+                    claims = session.exec(
+                        select(DocumentClaim).where(DocumentClaim.job_id.in_(job_ids))
+                    ).all()
+                    risk_flags = session.exec(
+                        select(DocumentRiskFlag).where(
+                            DocumentRiskFlag.job_id.in_(job_ids)
+                        )
+                    ).all()
+                    for claim in claims:
+                        bucket = tool_counts.setdefault(
+                            claim.job_id, {"citations": 0, "risk": {"high": 0, "medium": 0, "low": 0}}
+                        )
+                        if claim.quote_text:
+                            bucket["citations"] += 1
+                    for flag in risk_flags:
+                        bucket = tool_counts.setdefault(
+                            flag.job_id, {"citations": 0, "risk": {"high": 0, "medium": 0, "low": 0}}
+                        )
+                        severity = flag.severity or "low"
+                        if severity not in bucket["risk"]:
+                            bucket["risk"][severity] = 0
+                        bucket["risk"][severity] += 1
+
         filtered_docs = []
         for doc in docs:
             job = latest_jobs.get(doc.id)
@@ -434,6 +631,9 @@ def documents_index(
                 job.audience or job.selected_audience or "auto" if job else "auto"
             )
             if selected_audience != "all" and audience_code != selected_audience:
+                continue
+            summary_row = latest_summaries.get(doc.id)
+            if domain_filter and (not summary_row or summary_row.domain != domain_filter):
                 continue
             attempt = latest_attempts.get(job.id) if job else None
             filtered_docs.append(
@@ -444,6 +644,7 @@ def documents_index(
                     "status": job.status if job else "pending",
                     "snippet": (doc.content or "")[:200],
                     "summary": attempt.generated_one_line_summary if attempt else "",
+                    "tool_summary": tool_counts.get(job.id) if job else None,
                 }
             )
 
@@ -465,6 +666,8 @@ def documents_index(
             "has_prev": page > 1,
             "has_next": has_next,
             "query": search,
+            "domain_filter": domain_filter,
+            "show_tool_badges": SHOW_TOOL_BADGES,
         },
     )
 
@@ -618,6 +821,20 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
             select(DocumentClue).where(DocumentClue.document_id == job.document_id)
         ).all()
 
+        raw_claims = session.exec(
+            select(DocumentClaim)
+            .where(DocumentClaim.document_id == job.document_id)
+            .where(DocumentClaim.job_id == job.id)
+            .order_by(DocumentClaim.created_at.desc())
+        ).all()
+
+        risk_flags = session.exec(
+            select(DocumentRiskFlag)
+            .where(DocumentRiskFlag.document_id == job.document_id)
+            .where(DocumentRiskFlag.job_id == job.id)
+            .order_by(DocumentRiskFlag.created_at.desc())
+        ).all()
+
     audience_code = job.audience or job.selected_audience or "auto"
     audience_label = _audience_display(audience_code)
     routing_candidates = _safe_json_list(getattr(job, "routing_candidates_json", "[]"))
@@ -661,6 +878,12 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
                     final_summary["decision_bullets"]
                 )
 
+    claim_views = _build_claim_views(doc.content if doc else None, raw_claims)
+    strong_count = len([c for c in claim_views if c["confidence"] >= 0.8])
+    medium_count = len([c for c in claim_views if 0.6 <= c["confidence"] < 0.8])
+    weak_count = len([c for c in claim_views if c["confidence"] < 0.6])
+    supported_count = len([c for c in claim_views if c["quote_text"]])
+
     return templates.TemplateResponse(
         "job_detail.html",
         {
@@ -677,6 +900,16 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
             "tags": tags,
             "clues": clues,
             "final_summary": final_summary,
+            "claims": claim_views,
+            "risk_flags": risk_flags,
+            "support_warning": supported_count < 3,
+            "citation_summary": {
+                "total": len(claim_views),
+                "supported": supported_count,
+                "strong": strong_count,
+                "medium": medium_count,
+                "weak": weak_count,
+            },
         },
     )
 
@@ -693,6 +926,81 @@ def document_detail(request: Request, doc_id: int) -> HTMLResponse:
             .where(Job.document_id == doc.id)
             .order_by(Job.created_at.desc())
         ).first()
+
+        summary_row = session.exec(
+            select(DocumentTagSummary)
+            .where(DocumentTagSummary.document_id == doc.id)
+            .order_by(DocumentTagSummary.created_at.desc())
+        ).first()
+        canonical_tags = parse_summary_tags(summary_row) if summary_row else []
+        domain_label = summary_row.domain if summary_row else None
+
+        related_docs = []
+        if canonical_tags:
+            related_summaries = session.exec(
+                select(DocumentTagSummary)
+                .where(DocumentTagSummary.document_id != doc.id)
+                .order_by(DocumentTagSummary.created_at.desc())
+                .limit(200)
+            ).all()
+            scored = []
+            for summary in related_summaries:
+                tags = parse_summary_tags(summary)
+                score = compute_jaccard(canonical_tags, tags)
+                if score <= 0:
+                    continue
+                overlap = sorted(set(canonical_tags).intersection(tags))
+                scored.append(
+                    {
+                        "document_id": summary.document_id,
+                        "job_id": summary.job_id,
+                        "score": score,
+                        "overlap": overlap,
+                    }
+                )
+            scored.sort(key=lambda item: item["score"], reverse=True)
+            scored = scored[:10]
+
+            related_doc_ids = [item["document_id"] for item in scored]
+            docs = session.exec(
+                select(Document).where(Document.id.in_(related_doc_ids))
+            ).all()
+            doc_map = {item.id: item for item in docs}
+
+            jobs = session.exec(
+                select(Job)
+                .where(Job.document_id.in_(related_doc_ids))
+                .order_by(Job.created_at.desc())
+            ).all()
+            job_map: dict[int, Job] = {}
+            for item in jobs:
+                if item.document_id not in job_map:
+                    job_map[item.document_id] = item
+
+            for item in scored:
+                related_doc = doc_map.get(item["document_id"])
+                related_job = job_map.get(item["document_id"])
+                if not related_doc:
+                    continue
+                related_docs.append(
+                    {
+                        "document_id": related_doc.id,
+                        "job_id": related_job.id if related_job else None,
+                        "audience": _audience_display(
+                            related_job.audience
+                            if related_job and related_job.audience
+                            else (
+                                related_job.selected_audience
+                                if related_job
+                                else "auto"
+                            )
+                        ),
+                        "status": related_job.status if related_job else "pending",
+                        "snippet": (related_doc.content or "")[:160],
+                        "score_pct": int(round(item["score"] * 100)),
+                        "overlap": item["overlap"],
+                    }
+                )
 
         final_summary = None
         if job:
@@ -714,6 +1022,25 @@ def document_detail(request: Request, doc_id: int) -> HTMLResponse:
                         final_summary["decision_bullets"]
                     )
 
+        raw_claims = []
+        risk_flags = []
+        support_warning = False
+        if job:
+            raw_claims = session.exec(
+                select(DocumentClaim)
+                .where(DocumentClaim.document_id == doc.id)
+                .where(DocumentClaim.job_id == job.id)
+                .order_by(DocumentClaim.created_at.desc())
+            ).all()
+            risk_flags = session.exec(
+                select(DocumentRiskFlag)
+                .where(DocumentRiskFlag.document_id == doc.id)
+                .where(DocumentRiskFlag.job_id == job.id)
+                .order_by(DocumentRiskFlag.created_at.desc())
+            ).all()
+            support_warning = len([c for c in raw_claims if c.quote_text]) < 3
+
+        claim_views = _build_claim_views(doc.content, raw_claims)
         tags = session.exec(
             select(Tag)
             .join(DocumentTag, Tag.id == DocumentTag.tag_id)
@@ -759,6 +1086,12 @@ def document_detail(request: Request, doc_id: int) -> HTMLResponse:
             "final_summary": final_summary,
             "tags": tags,
             "clues": clues,
+            "domain_label": domain_label,
+            "canonical_tags": canonical_tags,
+            "related_docs": related_docs,
+            "claims": claim_views,
+            "risk_flags": risk_flags,
+            "support_warning": support_warning,
         },
     )
 

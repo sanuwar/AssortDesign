@@ -218,8 +218,10 @@ def run_job_pipeline(session: Session, job: Job) -> Job:
     def tool_risk_node(state: Dict[str, Any]) -> Dict[str, Any]:
         _ensure_not_timed_out(state)
         bullets = state.get("bullets", [])
-        text = "\n".join([str(b) for b in bullets if str(b).strip()])
-        risks = risk_checker(text)
+        bullets_text = "\n".join([str(b) for b in bullets if str(b).strip()])
+        # Run on source document AND generated bullets for richer detection.
+        combined_text = "\n\n".join(filter(None, [document.content or "", bullets_text]))
+        risks = risk_checker(combined_text)
         new_state = dict(state)
         new_state["risk_flags"] = risks
         return new_state

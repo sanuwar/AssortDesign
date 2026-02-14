@@ -52,15 +52,38 @@ TEMPLATES_DIR = APP_DIR.parent / "templates"
 STATIC_DIR = APP_DIR.parent / "static"
 
 SAMPLE_TEXT = (
-    "Assort Design is a modular, agentic analysis workflow for biomedical content. "
-    "It ingests text or URLs, routes each document to an audience-specific specialist, "
-    "and generates decision-ready artifacts (one-line summary, key clues, 3-5 decision bullets, "
-    "tags, and a mind map). A separate evaluator checks required sections and word/format "
-    "constraints and triggers iterative revisions until the output passes; all routing signals, "
-    "attempts, and evaluation feedback are persisted so the reasoning trail is inspectable "
-    "end-to-end. The project is also a live demonstration of how much faster a single developer "
-    "can ship reliable, structured software by pairing with AI coding assistants like Codex and "
-    "Claude AI."
+    "INTERNAL BRIEFING — VeriCard-X (veracitinib 50 mg) Commercial & Medical Affairs Update\n\n"
+
+    "VeriCard-X has demonstrated 100% response rates in our Phase II trial cohort and should be "
+    "considered the clear first-line standard of care for all HER2-positive metastatic breast "
+    "cancer patients, regardless of prior treatment history. Unlike competing therapies, "
+    "VeriCard-X eliminates disease progression in the majority of patients — a superiority claim "
+    "that our clinical team believes is fully supported by the available data.\n\n"
+
+    "Off-label use in HER2-low and triple-negative subtypes is being actively promoted by several "
+    "KOLs in our network. Field teams are encouraged to discuss these emerging indications with "
+    "oncologists where scientifically appropriate, as the emerging data strongly suggests benefit "
+    "in these populations. Patient testimonials collected at the Chicago Oncology Summit confirm "
+    "that VeriCard-X 'cured' their cancer after a single cycle, and these accounts may be shared "
+    "with healthcare providers as supporting evidence.\n\n"
+
+    "The drug has been FDA approved for HER2-positive metastatic breast cancer (March 2024). "
+    "Common adverse events include grade 3 hepatotoxicity in 18% of patients and cardiac "
+    "dysfunction in 11%; however, these risks are considered manageable and should not be "
+    "emphasised in routine prescriber conversations. The black box warning regarding interstitial "
+    "lung disease is a class-effect label requirement and does not reflect real-world incidence "
+    "in our trial population.\n\n"
+
+    "Pricing has been set at $28,400 per cycle. Reimbursement support programmes are available, "
+    "though field teams should prioritise volume commitments from high-prescribing accounts before "
+    "discussing patient assistance options. A speaker bureau programme compensating KOLs $5,000 "
+    "per engagement will launch in Q3; speakers are expected to recommend VeriCard-X as preferred "
+    "therapy in their presentations.\n\n"
+
+    "Comparative claims against trastuzumab deruxtecan (T-DXd) are supported by cross-trial "
+    "analyses — not head-to-head data — but may be presented as direct comparisons in slide "
+    "decks pending legal sign-off. Paediatric use data is not yet available; the drug is not "
+    "approved in patients under 18, but compassionate use guidance will be circulated separately."
 )
 
 AUDIENCES = ["auto", "commercial", "medical_affairs", "r_and_d", "cross_functional"]
@@ -835,6 +858,66 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
             .order_by(DocumentRiskFlag.created_at.desc())
         ).all()
 
+        # Related documents via tag Jaccard similarity
+        related_docs = []
+        summary_row = session.exec(
+            select(DocumentTagSummary)
+            .where(DocumentTagSummary.document_id == job.document_id)
+            .order_by(DocumentTagSummary.created_at.desc())
+        ).first()
+        canonical_tags = parse_summary_tags(summary_row) if summary_row else []
+        if canonical_tags:
+            related_summaries = session.exec(
+                select(DocumentTagSummary)
+                .where(DocumentTagSummary.document_id != job.document_id)
+                .order_by(DocumentTagSummary.created_at.desc())
+                .limit(200)
+            ).all()
+            scored = []
+            for s in related_summaries:
+                s_tags = parse_summary_tags(s)
+                score = compute_jaccard(canonical_tags, s_tags)
+                if score <= 0:
+                    continue
+                scored.append({
+                    "document_id": s.document_id,
+                    "job_id": s.job_id,
+                    "score": score,
+                    "overlap": sorted(set(canonical_tags).intersection(s_tags)),
+                })
+            scored.sort(key=lambda x: x["score"], reverse=True)
+            scored = scored[:8]
+            rel_doc_ids = [x["document_id"] for x in scored]
+            rel_docs = session.exec(
+                select(Document).where(Document.id.in_(rel_doc_ids))
+            ).all()
+            rel_doc_map = {d.id: d for d in rel_docs}
+            rel_jobs = session.exec(
+                select(Job)
+                .where(Job.document_id.in_(rel_doc_ids))
+                .order_by(Job.created_at.desc())
+            ).all()
+            rel_job_map: dict[int, Job] = {}
+            for rj in rel_jobs:
+                if rj.document_id not in rel_job_map:
+                    rel_job_map[rj.document_id] = rj
+            for x in scored:
+                rd = rel_doc_map.get(x["document_id"])
+                rj = rel_job_map.get(x["document_id"])
+                if not rd:
+                    continue
+                related_docs.append({
+                    "document_id": rd.id,
+                    "job_id": rj.id if rj else None,
+                    "audience": _audience_display(
+                        (rj.audience or rj.selected_audience or "auto") if rj else "auto"
+                    ),
+                    "status": rj.status if rj else "pending",
+                    "snippet": (rd.content or "")[:160],
+                    "score_pct": int(round(x["score"] * 100)),
+                    "overlap": x["overlap"],
+                })
+
     audience_code = job.audience or job.selected_audience or "auto"
     audience_label = _audience_display(audience_code)
     routing_candidates = _safe_json_list(getattr(job, "routing_candidates_json", "[]"))
@@ -914,6 +997,7 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
                 "medium": medium_count,
                 "weak": weak_count,
             },
+            "related_docs": related_docs,
         },
     )
 

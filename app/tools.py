@@ -151,44 +151,164 @@ def count_supported_citations(citations: Iterable[CitationResult]) -> int:
     return count
 
 
-def risk_checker(text: str) -> List[RiskFlag]:
+def risk_checker(text: str) -> List[RiskFlag]:  # noqa: C901
     output = text or ""
     flags: List[RiskFlag] = []
+    seen: set[str] = set()
 
-    absolute_re = re.compile(r"\b(will|guarantee|guarantees|always|never|proves?)\b", re.I)
-    comparative_re = re.compile(r"\b(best|superior|outperforms?|better than)\b", re.I)
-    caution_re = re.compile(r"\b(may|might|could|suggests?|limited|preliminary|potential)\b", re.I)
+    def _add(severity: str, category: str, span: str, fix: str) -> None:
+        key = f"{category}:{span[:50].lower()}"
+        if key not in seen:
+            seen.add(key)
+            flags.append(RiskFlag(severity=severity, category=category, text_span=span, suggested_fix=fix))
 
-    for match in absolute_re.finditer(output):
-        span = match.group(0)
-        flags.append(
-            RiskFlag(
-                severity="high",
-                category="over-certain language",
-                text_span=span,
-                suggested_fix="Add uncertainty (e.g., may/might) or cite evidence.",
-            )
-        )
+    # ── HIGH: absolute efficacy / outcome claims ──────────────────────────────
+    _abs_outcome = re.compile(
+        r"\b("
+        r"will\s+(cure|eliminate|eradicate|prevent\s+all|guarantee)"
+        r"|100\s*%\s*(response|efficacy|success|cure|effective)"
+        r"|clinically\s+proven\s+to\s+(cure|eliminate|prevent)"
+        r"|guarantees?\s+(efficacy|safety|response|cure)"
+        r"|always\s+works?|never\s+fails?"
+        r")\b",
+        re.I,
+    )
+    for m in _abs_outcome.finditer(output):
+        _add("high", "absolute efficacy claim", m.group(0),
+             "Remove absolute language; cite supporting evidence and add uncertainty qualifiers.")
 
-    for match in comparative_re.finditer(output):
-        span = match.group(0)
-        flags.append(
-            RiskFlag(
-                severity="medium",
-                category="unsupported comparison",
-                text_span=span,
-                suggested_fix="Clarify comparison basis or soften the claim.",
-            )
-        )
+    # ── HIGH: off-label promotion indicators ─────────────────────────────────
+    _off_label = re.compile(
+        r"\b("
+        r"off[\-\s]label"
+        r"|unapproved\s+indication"
+        r"|not\s+(yet\s+)?approved\s+for\s+\w+"
+        r"|expand(ed|ing)?\s+(use|indication)\s+(beyond|outside)"
+        r"|outside\s+(the\s+)?approved\s+(label|indication)"
+        r"|use\s+in\s+(children|pediatric|paediatric)\s+\w+\s+not\s+approved"
+        r")\b",
+        re.I,
+    )
+    for m in _off_label.finditer(output):
+        _add("high", "off-label promotion", m.group(0),
+             "Remove off-label promotion; ensure all claims are within the approved label indication.")
 
-    if output and not caution_re.search(output):
-        flags.append(
-            RiskFlag(
-                severity="low",
-                category="missing limitation",
-                text_span="No limitation language detected.",
-                suggested_fix="Add a limitation or uncertainty note.",
-            )
-        )
+    # ── HIGH: black-box / serious-safety minimisation ────────────────────────
+    _downplay = re.compile(
+        r"\b(minor|minimal|negligible|rare|well[\-\s]tolerated)\s+(side[\s\-]effects?|adverse\s+event|risk|concern)\b",
+        re.I,
+    )
+    for m in _downplay.finditer(output):
+        _add("high", "safety minimisation", m.group(0),
+             "Do not minimise adverse events; include the complete safety profile and any boxed warnings.")
 
-    return flags[:8]
+    _blackbox = re.compile(
+        r"\b(black[\s\-]?box\s+warning|boxed\s+warning)\b", re.I
+    )
+    for m in _blackbox.finditer(output):
+        _add("high", "boxed warning present", m.group(0),
+             "A boxed warning is referenced — ensure it is prominently disclosed and not downplayed.")
+
+    # ── HIGH: residual over-certain language ─────────────────────────────────
+    _absolute = re.compile(r"\b(guarantees?|always|never|proves?\s+that)\b", re.I)
+    for m in _absolute.finditer(output):
+        _add("high", "over-certain language", m.group(0),
+             "Add uncertainty qualifiers (e.g., may/might) or back the claim with a citation.")
+
+    # ── MEDIUM: unsupported comparative claims ────────────────────────────────
+    _comparative = re.compile(
+        r"\b("
+        r"best[\-\s]in[\-\s]class|best\s+(available|option|choice)"
+        r"|superior(\s+to)?|outperforms?"
+        r"|better\s+than|more\s+effective\s+than"
+        r"|gold\s+standard"
+        r"|first[\-\s]in[\-\s]class"
+        r"|only\s+(drug|therapy|treatment|agent|option)"
+        r")\b",
+        re.I,
+    )
+    for m in _comparative.finditer(output):
+        _add("medium", "unsupported comparative claim", m.group(0),
+             "Specify the head-to-head data source. Cross-trial indirect comparisons must be labelled as such.")
+
+    # ── MEDIUM: cross-trial comparison without head-to-head context ───────────
+    _cross_trial = re.compile(
+        r"\b(compared\s+(?:favorably\s+)?(?:to|with)\s+\w+|vs\.?\s+\w+|versus\s+\w+)\b.{0,100}"
+        r"\b(trial|study|arm|cohort|data)\b",
+        re.I,
+    )
+    for m in _cross_trial.finditer(output):
+        snippet = m.group(0)[:90]
+        _add("medium", "cross-trial comparison", snippet,
+             "Label this as an indirect/cross-trial comparison. It is not equivalent to head-to-head evidence.")
+
+    # ── MEDIUM: patient testimonials used as clinical evidence ────────────────
+    _testimonial = re.compile(
+        r"\b("
+        r"patient(s)?\s+(report(ed|s)?|say(s)?|claim(s)?|described|noted|felt)"
+        r"|anecdotal\s+evidence"
+        r"|personal\s+experience\s+shows?"
+        r"|patient\s+(testimonial|account|story)"
+        r"|patient\s+feedback\s+suggests?"
+        r")\b",
+        re.I,
+    )
+    for m in _testimonial.finditer(output):
+        _add("medium", "patient testimonial as evidence", m.group(0),
+             "Patient anecdotes are not clinical evidence; cite controlled trial data instead.")
+
+    # ── MEDIUM: absolute percentage claims without study context ─────────────
+    _pct = re.compile(
+        r"\b(100\s*%\s*(response|efficacy|success|survival|reduction)"
+        r"|zero\s+(adverse|side)\s*events?"
+        r"|0\s*%\s*(adverse|side)\s*events?)\b",
+        re.I,
+    )
+    for m in _pct.finditer(output):
+        _add("medium", "absolute percentage claim", m.group(0),
+             "Absolute percentages require a citation with trial name, population size, and confidence interval.")
+
+    # ── MEDIUM: unapproved paediatric / special-population use ───────────────
+    _paeds = re.compile(
+        r"\b(pediatric|paediatric|children|child|adolescent|neonatal).{0,60}"
+        r"\b(use|treat(ment|ed)?|safe|efficacy|dose|dosing)\b",
+        re.I,
+    )
+    for m in _paeds.finditer(output):
+        snippet = m.group(0)[:90]
+        _add("medium", "special population / unapproved use", snippet,
+             "Confirm this population is within the approved label; otherwise this may constitute off-label promotion.")
+
+    # ── LOW: missing limitation / uncertainty language ────────────────────────
+    _caution = re.compile(
+        r"\b(may|might|could|suggests?|limited|preliminary|potential|approximately|estimated|appears?\s+to)\b",
+        re.I,
+    )
+    if output and not _caution.search(output):
+        _add("low", "missing limitation language", "No limitation language detected.",
+             "Add a limitation or uncertainty qualifier (e.g., 'data suggest', 'preliminary findings').")
+
+    # ── LOW: efficacy claimed without any safety / adverse-event language ─────
+    _efficacy = re.compile(r"\b(efficacy|effective|response\s+rate|clinical\s+benefit|positive\s+outcome)\b", re.I)
+    _safety = re.compile(r"\b(adverse|side[\s\-]?effect|safety|tolerab|risk|warning|contraindic|toxicity)\b", re.I)
+    if _efficacy.search(output) and not _safety.search(output):
+        _add("low", "missing safety language",
+             "Efficacy claimed without accompanying safety context.",
+             "Include adverse event profile, safety data, or disclaimers alongside efficacy claims.")
+
+    # ── LOW: undisclosed conflicts of interest / KOL payments ────────────────
+    _disclosure = re.compile(
+        r"\b("
+        r"key\s+opinion\s+leader|kol"
+        r"|speaker\s+(bureau|fee|honorari)"
+        r"|paid\s+(consultant|advisor|speaker)"
+        r"|financial\s+(relationship|arrangement|support|interest)"
+        r"|advisory\s+board"
+        r")\b",
+        re.I,
+    )
+    for m in _disclosure.finditer(output):
+        _add("low", "conflict of interest / disclosure", m.group(0),
+             "Ensure all financial relationships and conflicts of interest are fully disclosed per applicable guidelines.")
+
+    return flags[:12]

@@ -246,6 +246,52 @@
     margin-top: 1px;
   }
   .output-item p { margin: 3px 0 0; font-size: 13px; }
+
+  /* Analysis Ready card */
+  .analysis-ready-card { border-left: 4px solid var(--accent); }
+  .analysis-ready-summary {
+    font-size: 16px;
+    line-height: 1.6;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+  .analysis-ready-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .ready-stat {
+    background: var(--bg);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 13px;
+  }
+  .ready-stat-risk { border-color: #f5b7b1; background: #fdecea; color: #b71c1c; }
+  .ready-stat-ok   { border-color: #a5d6a7; background: #e8f5e9; color: #2e7d32; }
+  .analysis-ready-hints {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .ready-hint {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: var(--bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    transition: border-color 0.15s;
+  }
+  .ready-hint:hover { border-color: var(--accent); }
+  .ready-hint-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+  .ready-hint p { margin: 3px 0 0; font-size: 12px; }
+
   /* Same visual as .mermaid before the class is swapped on reveal */
   .mermaid-deferred {
     background: var(--bg);
@@ -350,6 +396,68 @@
           <p class="muted" style="white-space:pre-wrap">{{ document.content }}</p>
         {% endif %}
       </div>
+    </div>
+  {% endif %}
+
+  {# ── Analysis Ready card (post-run summary) ─────────── #}
+  {% if final_summary and job.status != "running" %}
+    <div class="card analysis-ready-card">
+
+      {# One-line summary — always visible #}
+      {% if final_summary.one_line_summary %}
+        <p class="analysis-ready-summary">{{ final_summary.one_line_summary }}</p>
+      {% endif %}
+
+      {# Quick stats row #}
+      <div class="analysis-ready-stats">
+        {% if final_summary.decision_bullets %}
+          <span class="ready-stat">
+            <strong>{{ final_summary.decision_bullets | length }}</strong> bullets
+          </span>
+        {% endif %}
+        {% if citation_summary.supported > 0 %}
+          <span class="ready-stat">
+            <strong>{{ citation_summary.supported }}</strong>
+            citation{{ "s" if citation_summary.supported != 1 else "" }}
+            <span class="muted">({{ citation_summary.strong }} strong)</span>
+          </span>
+        {% endif %}
+        {% if tags %}
+          <span class="ready-stat"><strong>{{ tags | length }}</strong> tags</span>
+        {% endif %}
+        {% if clues %}
+          <span class="ready-stat"><strong>{{ clues | length }}</strong> clues</span>
+        {% endif %}
+        {% set high_n = risk_flags | selectattr("severity", "equalto", "high") | list | length %}
+        {% if high_n > 0 %}
+          <span class="ready-stat ready-stat-risk">
+            <strong>{{ high_n }}</strong> high-risk flag{{ "s" if high_n != 1 else "" }}
+          </span>
+        {% else %}
+          <span class="ready-stat ready-stat-ok">No high-risk flags</span>
+        {% endif %}
+      </div>
+
+      {# Button hint row #}
+      <div class="analysis-ready-hints">
+        <div class="ready-hint" onclick="document.getElementById('btn-analysis').click()" style="cursor:pointer">
+          <span class="ready-hint-icon">📊</span>
+          <div>
+            <strong>View Analysis</strong>
+            <p class="muted">Full breakdown — bullets, mind map, citations, risk &amp; scorecard</p>
+          </div>
+        </div>
+        {% if document %}
+          <div class="ready-hint" onclick="document.getElementById('btn-source').click()" style="cursor:pointer">
+            <span class="ready-hint-icon">📄</span>
+            <div>
+              <strong>View Source</strong>
+              <p class="muted">Original {% if source_url %}URL and scraped {% endif %}document text</p>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
     </div>
   {% endif %}
 
@@ -756,6 +864,37 @@
     </div>
 
   </div>{# end analysis-panel #}
+
+  {# ── Related Documents ─────────────────────────────── #}
+  {% if related_docs %}
+    <div class="card">
+      <h3>Related Documents</h3>
+      <p class="muted" style="margin-bottom:14px">Similar documents matched by shared canonical tags.</p>
+      {% for doc in related_docs %}
+        <div class="card" style="margin-bottom:10px">
+          <div class="muted" style="margin-bottom:6px">
+            <strong>Similarity:</strong> {{ doc.score_pct }}%
+            &nbsp;·&nbsp;
+            <span class="status-chip status-{{ doc.status }}">{{ doc.status }}</span>
+            &nbsp;·&nbsp;
+            <span class="muted">{{ doc.audience }}</span>
+          </div>
+          <p style="margin:0 0 6px">{{ doc.snippet }}{% if doc.snippet|length == 160 %}…{% endif %}</p>
+          {% if doc.overlap %}
+            <p class="muted" style="font-size:12px;margin:0 0 8px">
+              <strong>Shared tags:</strong> {{ doc.overlap | join(", ") }}
+            </p>
+          {% endif %}
+          <div class="actions">
+            {% if doc.job_id %}
+              <a class="button" href="/web/jobs/{{ doc.job_id }}">View Request</a>
+            {% endif %}
+            <a class="button" href="/web/documents/{{ doc.document_id }}">View Document</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   <script>
     // Toggle panels with active-button state

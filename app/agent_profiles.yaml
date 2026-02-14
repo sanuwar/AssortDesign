@@ -10,6 +10,9 @@ routing:
     If confidence is low, still provide best-fit candidates based on the evidence.
     Do not include any extra keys or text.
   low_confidence_threshold: 0.58
+  ml_router_threshold: 0.58
+  ml_router_margin: 0.08
+  ml_router_min_samples: 10
 audiences:
   commercial:
     display_name: "Commercial"

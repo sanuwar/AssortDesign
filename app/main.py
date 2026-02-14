@@ -928,6 +928,8 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
     routing_confidence_pct = None
     if getattr(job, "routing_confidence", None) is not None:
         routing_confidence_pct = int(round(float(job.routing_confidence) * 100))
+    routing_source = getattr(job, "routing_source", None)
+    router_version = getattr(job, "router_version", None)
     cross_functional_detail = None
     if audience_label == "Cross-Functional":
         if routing_candidates_display:

@@ -319,14 +319,35 @@
       Audience: {{ audience_label }} •
       <span class="status-chip status-{{ job.status }}">{{ job.status }}</span>
     </p>
-    {% if routing_confidence_pct is not none %}
+    {% if routing_source %}
       <p class="muted">
-        Routing confidence: {{ routing_confidence_pct }}%
-        {% if routing_candidates %} • Candidates: {{ routing_candidates | join(", ") }}{% endif %}
+        {% if routing_source == "ml" %}
+          Routing: <strong>ML router</strong>
+          {% if routing_confidence_pct is not none %} {{ routing_confidence_pct }}%{% endif %}
+          {% if routing_reasons %} — {{ routing_reasons[0] }}{% endif %}
+        {% elif routing_source == "ml+llm_fallback" %}
+          Routing: <strong>LLM fallback</strong>
+          <span class="badge badge-inline" style="font-size:11px;background:#fff8e1;color:#a06000;border-color:#f5d580">ML fallback</span>
+          {% if routing_reasons %} — {{ routing_reasons | join("; ") }}{% endif %}
+        {% elif routing_source == "manual" %}
+          Routing: <strong>Manual override</strong>
+        {% else %}
+          Routing: <strong>LLM</strong>
+          {% if routing_confidence_pct is not none %} {{ routing_confidence_pct }}%{% endif %}
+          {% if routing_candidates %} • Candidates: {{ routing_candidates | join(", ") }}{% endif %}
+        {% endif %}
+        {% if router_version %} <span class="muted" style="font-size:11px">· model {{ router_version[:10] }}</span>{% endif %}
       </p>
-    {% endif %}
-    {% if routing_reasons %}
-      <p class="muted">Routing reasons: {{ routing_reasons | join("; ") }}</p>
+    {% else %}
+      {% if routing_confidence_pct is not none %}
+        <p class="muted">
+          Routing confidence: {{ routing_confidence_pct }}%
+          {% if routing_candidates %} • Candidates: {{ routing_candidates | join(", ") }}{% endif %}
+        </p>
+      {% endif %}
+      {% if routing_reasons %}
+        <p class="muted">Routing reasons: {{ routing_reasons | join("; ") }}</p>
+      {% endif %}
     {% endif %}
     {% if final_summary and support_warning %}
       <p class="error">Needs review: fewer than 3 supported citations found.</p>

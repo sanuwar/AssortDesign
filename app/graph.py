@@ -13,8 +13,10 @@ from app.config import (
     get_audience_profile,
     get_evaluation_config,
     get_generation_config,
+    get_ml_router_config,
     get_routing_config,
 )
+from app.ml_router import _ml_router
 from app.llm import evaluate_content, generate_content, route_audience
 from app.models import (
     Document,
@@ -112,31 +114,61 @@ def run_job_pipeline(session: Session, job: Job) -> Job:
             else:
                 job.routing_candidates_json = json.dumps([audience])
             job.routing_reasons_json = json.dumps(["Manual override"])
+            job.routing_source = "manual"
+            job.router_version = None
         else:
-            result = route_audience(routing_config["auto_router_prompt"], document.content)
-            confidence = float(result.get("confidence") or 0.0)
-            audience = result.get("audience", "cross_functional")
-            reasons = result.get("reasons")
-            if isinstance(reasons, list):
-                reasons = [str(r).strip() for r in reasons if str(r).strip()]
+            ml_cfg = get_ml_router_config()
+            threshold = ml_cfg["ml_router_threshold"]
+            margin = ml_cfg["ml_router_margin"]
+
+            ml_result = None
+            routing_source = "llm"
+            audience = "cross_functional"
+            confidence = 0.0
+            candidates: List[str] = []
+            reasons: List[str] = []
+
+            if _ml_router.load():
+                try:
+                    ml_result = _ml_router.predict(document.content, threshold, margin)
+                    ml_audience = ml_result["audience"]
+
+                    if ml_audience != "cross_functional":
+                        # ML succeeded — use it directly, skip LLM
+                        audience = ml_audience
+                        routing_source = "ml"
+                        confidence = ml_result["confidence"]
+                        candidates = ml_result["candidates"]
+                        signals_str = ", ".join(ml_result["top_signals"])
+                        reasons = [
+                            f"ML router {int(confidence * 100)}% — top signals: {signals_str}"
+                        ]
+                    else:
+                        # ML uncertain → fallback to LLM
+                        routing_source = "ml+llm_fallback"
+                        fallback_note = ml_result.get("fallback_reason") or "ML uncertain"
+                        existing_reasons = [f"ML fallback: {fallback_note}"]
+                        audience, confidence, candidates, reasons = _parse_llm_routing(
+                            existing_reasons, [], routing_config, document.content
+                        )
+                except Exception:
+                    routing_source = "llm"
+                    audience, confidence, candidates, reasons = _parse_llm_routing(
+                        [], [], routing_config, document.content
+                    )
             else:
-                reasons = []
-            candidates = result.get("candidates")
-            allowed = {"commercial", "medical_affairs", "r_and_d"}
-            if isinstance(candidates, list):
-                candidates = [c for c in candidates if c in allowed]
-            else:
-                candidates = []
-            if not candidates and audience in allowed:
-                candidates = [audience]
-            threshold = float(routing_config.get("low_confidence_threshold", 0.5))
-            if confidence < threshold:
-                audience = "cross_functional"
-                if not reasons:
-                    reasons = ["Low confidence: routed to cross-functional."]
+                # No model artifacts — LLM only
+                routing_source = "llm"
+                audience, confidence, candidates, reasons = _parse_llm_routing(
+                    [], [], routing_config, document.content
+                )
+
             job.routing_confidence = confidence
             job.routing_candidates_json = json.dumps(candidates)
             job.routing_reasons_json = json.dumps(reasons[:5])
+            job.routing_source = routing_source
+            job.router_version = ml_result["router_version"] if ml_result else None
+
         try:
             profile = get_audience_profile(audience)
         except ValueError:
@@ -156,6 +188,36 @@ def run_job_pipeline(session: Session, job: Job) -> Job:
             }
         )
         return new_state
+
+    def _parse_llm_routing(
+        existing_reasons: List[str],
+        existing_candidates: List[str],
+        routing_cfg: Dict[str, Any],
+        content: str,
+    ) -> tuple:
+        result = route_audience(routing_cfg["auto_router_prompt"], content)
+        confidence = float(result.get("confidence") or 0.0)
+        audience = result.get("audience", "cross_functional")
+        raw_reasons = result.get("reasons")
+        if isinstance(raw_reasons, list):
+            reasons = [str(r).strip() for r in raw_reasons if str(r).strip()]
+        else:
+            reasons = []
+        reasons = existing_reasons + reasons
+        raw_candidates = result.get("candidates")
+        allowed = {"commercial", "medical_affairs", "r_and_d"}
+        if isinstance(raw_candidates, list):
+            candidates = [c for c in raw_candidates if c in allowed]
+        else:
+            candidates = existing_candidates
+        if not candidates and audience in allowed:
+            candidates = [audience]
+        llm_threshold = float(routing_cfg.get("low_confidence_threshold", 0.5))
+        if confidence < llm_threshold:
+            audience = "cross_functional"
+            if not reasons:
+                reasons = ["Low confidence: routed to cross-functional."]
+        return audience, confidence, candidates, reasons
 
     def specialist_generate_node(state: Dict[str, Any]) -> Dict[str, Any]:
         _ensure_not_timed_out(state)

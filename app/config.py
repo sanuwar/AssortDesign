@@ -45,6 +45,15 @@ def get_routing_config() -> Dict[str, Any]:
     return routing
 
 
+def get_ml_router_config() -> Dict[str, Any]:
+    routing = get_routing_config()
+    return {
+        "ml_router_threshold": float(routing.get("ml_router_threshold", 0.58)),
+        "ml_router_margin": float(routing.get("ml_router_margin", 0.08)),
+        "ml_router_min_samples": int(routing.get("ml_router_min_samples", 10)),
+    }
+
+
 def get_evaluation_config() -> Dict[str, Any]:
     profiles = load_profiles()
     evaluation = profiles.get("evaluation")

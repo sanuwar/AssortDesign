@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}Assort App{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon-preview.svg">
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
@@ -32,7 +33,7 @@
       }
       header {
         padding: 0 32px;
-        height: 56px;
+        height: 58px;
         border-bottom: 1px solid var(--card-border);
         background: var(--accent);
         position: sticky;
@@ -49,23 +50,61 @@
         gap: 16px;
         width: 100%;
       }
-      .brand {
+      .brand-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        position: relative;
+      }
+      .brand-group:hover { text-decoration: none; }
+      .brand-logo {
+        width: 28px;
+        height: 28px;
+        flex-shrink: 0;
+        border-radius: 6px;
+        border: 1.5px solid rgba(255,255,255,0.35);
+        transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+      }
+      .brand-group:hover .brand-logo {
+        transform: scale(1.12);
+        border-color: rgba(255,255,255,0.6);
+        box-shadow: 0 0 10px rgba(233,69,96,0.45);
+      }
+      .brand-text {
+        display: flex;
+        flex-direction: column;
+        line-height: 1;
+      }
+      .brand-name {
         font-size: 18px;
         letter-spacing: 0.4px;
         font-weight: 700;
         color: #ffffff;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
       }
-      .brand::before {
-        content: "";
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: var(--accent-2);
-        display: inline-block;
+      .brand-motto {
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.6px;
+        color: rgba(255,255,255,0.55);
+        margin-top: 3px;
+      }
+      .brand-home-hint {
+        position: absolute;
+        left: 100%;
+        margin-left: 10px;
+        font-size: 11px;
+        font-weight: 500;
+        color: rgba(255,255,255,0.55);
+        white-space: nowrap;
+        opacity: 0;
+        transform: translateX(-4px);
+        transition: opacity 0.2s, transform 0.2s;
+        pointer-events: none;
+      }
+      .brand-group:hover .brand-home-hint {
+        opacity: 1;
+        transform: translateX(0);
       }
       .nav-links {
         display: flex;
@@ -500,7 +539,13 @@
         color: var(--muted);
       }
       @media (max-width: 720px) {
-        header { padding: 0 18px; }
+        header { padding: 0 14px; height: auto; min-height: 48px; padding-top: 8px; padding-bottom: 8px; }
+        .nav { flex-wrap: wrap; gap: 6px; }
+        .brand-name { font-size: 16px; }
+        .brand-motto { display: none; }
+        .brand-home-hint { display: none; }
+        .nav-links { gap: 2px; flex-wrap: wrap; }
+        .nav-links a { font-size: 12px; padding: 4px 8px; }
         main   { padding: 0 18px; }
         .site-footer { padding: 14px 18px; }
       }
@@ -509,7 +554,25 @@
   <body>
     <header>
       <div class="nav">
-        <a class="brand" href="/web">Assort App</a>
+        <a class="brand-group" href="/web">
+          <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <rect width="64" height="64" rx="14" fill="#0f3460"/>
+            <circle cx="16" cy="18" r="4" fill="#fff"/>
+            <circle cx="24" cy="14" r="3" fill="#fff" opacity=".85"/>
+            <circle cx="20" cy="24" r="3.5" fill="#fff" opacity=".9"/>
+            <circle cx="46" cy="16" r="4" fill="#e94560"/>
+            <circle cx="52" cy="22" r="3" fill="#e94560" opacity=".85"/>
+            <circle cx="44" cy="24" r="3.5" fill="#e94560" opacity=".9"/>
+            <circle cx="28" cy="44" r="4" fill="#7ec8e3"/>
+            <circle cx="36" cy="42" r="3.5" fill="#7ec8e3" opacity=".9"/>
+            <circle cx="32" cy="50" r="3" fill="#7ec8e3" opacity=".85"/>
+          </svg>
+          <span class="brand-text">
+            <span class="brand-name">Assort App</span>
+            <span class="brand-motto">ML-routed. LLM-assisted &mdash; turning reading into decisions.</span>
+          </span>
+          <span class="brand-home-hint">&#8592; Home</span>
+        </a>
         <nav class="nav-links">
           <a href="/web/documents">Records</a>
           <a href="/web/insights/tags">Insights</a>
@@ -589,6 +652,14 @@
           }
           initMermaid();
         });
+      })();
+
+      (function () {
+        var path = window.location.pathname;
+        if (path === "/web" || path === "/web/" || path === "/") {
+          var hint = document.querySelector(".brand-home-hint");
+          if (hint) hint.style.display = "none";
+        }
       })();
 
       (function () {

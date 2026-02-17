@@ -35,6 +35,10 @@ def _ensure_job_columns() -> None:
             conn.execute(text("ALTER TABLE job ADD COLUMN routing_candidates_json TEXT"))
         if "routing_reasons_json" not in columns:
             conn.execute(text("ALTER TABLE job ADD COLUMN routing_reasons_json TEXT"))
+        if "routing_source" not in columns:
+            conn.execute(text("ALTER TABLE job ADD COLUMN routing_source TEXT"))
+        if "router_version" not in columns:
+            conn.execute(text("ALTER TABLE job ADD COLUMN router_version TEXT"))
 
 
 def _ensure_document_columns() -> None:

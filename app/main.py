@@ -19,7 +19,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlmodel import select
+from sqlmodel import col, func, select
 
 from app.config import get_audience_profile
 from app.db import get_session, init_db
@@ -45,6 +45,7 @@ from app.tag_intel import (
     count_domains,
     count_tags,
     parse_summary_tags,
+    persist_tag_summary,
 )
 
 APP_DIR = Path(__file__).resolve().parent
@@ -173,12 +174,39 @@ def _build_home_context(selected_audience: Optional[str]) -> dict:
     if total_jobs:
         success_rate = round((total_completed / total_jobs) * 100)
 
+    # Tag data for homepage cards
+    top_tags: list[dict] = []
+    recent_tags: list[str] = []
+    with get_session() as session:
+        # Top tags by occurrence count
+        rows = session.exec(
+            select(Tag.name, func.count(DocumentTag.tag_id).label("cnt"))
+            .join(DocumentTag, Tag.id == DocumentTag.tag_id)
+            .group_by(DocumentTag.tag_id)
+            .order_by(func.count(DocumentTag.tag_id).desc())
+            .limit(8)
+        ).all()
+        top_tags = [{"name": r[0], "count": r[1]} for r in rows]
+
+        # Recent tags from the latest documents
+        recent_rows = session.exec(
+            select(Tag.name)
+            .join(DocumentTag, Tag.id == DocumentTag.tag_id)
+            .join(Document, Document.id == DocumentTag.document_id)
+            .distinct()
+            .order_by(Document.created_at.desc())
+            .limit(8)
+        ).all()
+        recent_tags = [r for r in recent_rows] if recent_rows else []
+
     return {
         "audiences": AUDIENCES,
         "audience_display": audience_display,
         "selected_audience": resolved_audience,
         "history": history,
         "route_counts": route_counts,
+        "top_tags": top_tags,
+        "recent_tags": recent_tags,
         "stats": {
             "total_docs": total_docs,
             "total_jobs": total_jobs,
@@ -523,6 +551,44 @@ def create_tag_alias(
 def project_visuals() -> FileResponse:
     visuals_path = TEMPLATES_DIR / "project_visuals.html"
     return FileResponse(visuals_path, media_type="text/html")
+
+
+@app.get("/web/admin/backfill-tag-summaries", response_class=HTMLResponse)
+def backfill_tag_summaries(request: Request) -> HTMLResponse:
+    count = 0
+    with get_session() as session:
+        docs = session.exec(select(Document).order_by(Document.created_at.desc())).all()
+        for doc in docs:
+            job = session.exec(
+                select(Job)
+                .where(Job.document_id == doc.id, Job.status == "completed")
+                .order_by(Job.created_at.desc())
+            ).first()
+            if not job:
+                continue
+            attempt = session.exec(
+                select(JobAttempt)
+                .where(JobAttempt.job_id == job.id, JobAttempt.passed == True)  # noqa: E712
+                .order_by(JobAttempt.attempt_no.desc())
+            ).first()
+            if not attempt:
+                continue
+            raw_tags: list[str] = []
+            try:
+                raw_tags = json.loads(attempt.generated_tags_json or "[]")
+            except json.JSONDecodeError:
+                pass
+            if not raw_tags:
+                continue
+            persist_tag_summary(session, doc.id, job.id, raw_tags)
+            count += 1
+        session.commit()
+    return HTMLResponse(
+        f"<html><body><h2>Backfill complete</h2>"
+        f"<p>Re-classified {count} documents with updated domain lanes.</p>"
+        f'<p><a href="/web/insights/tags">View Tag Insights</a></p>'
+        f"</body></html>"
+    )
 
 
 @app.get("/web/documents", response_class=HTMLResponse)
@@ -928,6 +994,8 @@ def job_detail(request: Request, job_id: int) -> HTMLResponse:
     routing_confidence_pct = None
     if getattr(job, "routing_confidence", None) is not None:
         routing_confidence_pct = int(round(float(job.routing_confidence) * 100))
+    routing_source = getattr(job, "routing_source", None)
+    router_version = getattr(job, "router_version", None)
     cross_functional_detail = None
     if audience_label == "Cross-Functional":
         if routing_candidates_display:

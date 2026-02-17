@@ -9,3 +9,6 @@ venv/
 *.db
 data/
 .DS_Store
+artifacts/*.pkl
+artifacts/*.joblib
+artifacts/metadata.json

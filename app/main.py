@@ -45,6 +45,7 @@ from app.tag_intel import (
     count_domains,
     count_tags,
     parse_summary_tags,
+    persist_tag_summary,
 )
 
 APP_DIR = Path(__file__).resolve().parent
@@ -550,6 +551,44 @@ def create_tag_alias(
 def project_visuals() -> FileResponse:
     visuals_path = TEMPLATES_DIR / "project_visuals.html"
     return FileResponse(visuals_path, media_type="text/html")
+
+
+@app.get("/web/admin/backfill-tag-summaries", response_class=HTMLResponse)
+def backfill_tag_summaries(request: Request) -> HTMLResponse:
+    count = 0
+    with get_session() as session:
+        docs = session.exec(select(Document).order_by(Document.created_at.desc())).all()
+        for doc in docs:
+            job = session.exec(
+                select(Job)
+                .where(Job.document_id == doc.id, Job.status == "completed")
+                .order_by(Job.created_at.desc())
+            ).first()
+            if not job:
+                continue
+            attempt = session.exec(
+                select(JobAttempt)
+                .where(JobAttempt.job_id == job.id, JobAttempt.passed == True)  # noqa: E712
+                .order_by(JobAttempt.attempt_no.desc())
+            ).first()
+            if not attempt:
+                continue
+            raw_tags: list[str] = []
+            try:
+                raw_tags = json.loads(attempt.generated_tags_json or "[]")
+            except json.JSONDecodeError:
+                pass
+            if not raw_tags:
+                continue
+            persist_tag_summary(session, doc.id, job.id, raw_tags)
+            count += 1
+        session.commit()
+    return HTMLResponse(
+        f"<html><body><h2>Backfill complete</h2>"
+        f"<p>Re-classified {count} documents with updated domain lanes.</p>"
+        f'<p><a href="/web/insights/tags">View Tag Insights</a></p>'
+        f"</body></html>"
+    )
 
 
 @app.get("/web/documents", response_class=HTMLResponse)

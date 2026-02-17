@@ -9,7 +9,9 @@
       "Bash(pip show:*)",
       "Bash(grep:*)",
       "Read(//c/AsortDesing/**)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
